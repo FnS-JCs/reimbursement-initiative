@@ -21,7 +21,7 @@ import {
   AccordionTrigger,
 } from "@/ui/accordion";
 import { useToast } from "@/lib/use-toast";
-import { Plus, Edit, Loader2, Building2, Store, Tags, Layers, Power } from "lucide-react";
+import { Plus, Edit, Loader2, Building2, Store, Tags, Layers, Power, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Company {
@@ -64,7 +64,14 @@ interface ProcessType {
   created_at: string;
 }
 
-type DropdownType = "companies" | "vendors" | "categories" | "subcategories" | "process_types";
+interface ScCabinet {
+  id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+type DropdownType = "companies" | "vendors" | "categories" | "subcategories" | "process_types" | "sc_cabinets";
 
 export function FnSDropdowns() {
   const supabase = createClient();
@@ -76,6 +83,7 @@ export function FnSDropdowns() {
   const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
   const [categorySubCategories, setCategorySubCategories] = useState<CategorySubCategory[]>([]);
   const [processTypes, setProcessTypes] = useState<ProcessType[]>([]);
+  const [scCabinets, setScCabinets] = useState<ScCabinet[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [addDialog, setAddDialog] = useState<{
@@ -98,7 +106,7 @@ export function FnSDropdowns() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [companiesRes, vendorsRes, categoriesRes, subCategoriesRes, categorySubCategoriesRes, processTypesRes] =
+      const [companiesRes, vendorsRes, categoriesRes, subCategoriesRes, categorySubCategoriesRes, processTypesRes, scCabinetsRes] =
         await Promise.all([
           supabase.from("companies").select("*").order("name"),
           supabase.from("vendors").select("*").order("name"),
@@ -106,6 +114,7 @@ export function FnSDropdowns() {
           supabase.from("subcategories").select("*").order("name"),
           supabase.from("category_subcategories").select("*"),
           supabase.from("process_types").select("*").order("name"),
+          supabase.from("sc_cabinets").select("*").order("name"),
         ]);
 
       setCompanies(companiesRes.data || []);
@@ -114,6 +123,7 @@ export function FnSDropdowns() {
       setSubCategories(subCategoriesRes.data || []);
       setCategorySubCategories(categorySubCategoriesRes.data || []);
       setProcessTypes(processTypesRes.data || []);
+      setScCabinets(scCabinetsRes.data || []);
     } catch {
       toast({
         title: "Error",
@@ -135,6 +145,7 @@ export function FnSDropdowns() {
       case "vendors": return "vendors";
       case "categories": return "categories";
       case "process_types": return "process_types";
+      case "sc_cabinets": return "sc_cabinets";
       default: return "";
     }
   };
@@ -477,6 +488,35 @@ export function FnSDropdowns() {
             </div>
           </AccordionContent>
         </AccordionItem>
+
+        <AccordionItem value="sc_cabinets">
+          <AccordionTrigger>
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              SC/Cabinet Names ({scCabinets.filter(s => s.is_active).length}/{scCabinets.length})
+            </div>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-3">
+              <Button variant="outline" size="sm" onClick={() => openAddDialog("sc_cabinets")}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add SC/Cabinet
+              </Button>
+              <div className="flex flex-wrap gap-2">
+                {scCabinets.map((sc) => (
+                  <ItemRow
+                    key={sc.id}
+                    item={sc}
+                    type="sc_cabinets"
+                    onEdit={() => openEditDialog("sc_cabinets", sc)}
+                    onToggle={() => handleToggleActive("sc_cabinets", sc)}
+                    onDelete={() => handleDelete("sc_cabinets", sc)}
+                  />
+                ))}
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
       </Accordion>
 
       <Dialog open={addDialog.open} onOpenChange={(open) => setAddDialog({ open, type: "companies" })}>
@@ -488,6 +528,7 @@ export function FnSDropdowns() {
               {addDialog.type === "categories" && "Add Category"}
               {addDialog.type === "subcategories" && "Add Sub-Category"}
               {addDialog.type === "process_types" && "Add Process Type"}
+              {addDialog.type === "sc_cabinets" && "Add SC/Cabinet"}
             </DialogTitle>
             <DialogDescription>
               {addDialog.type === "subcategories" ? "Enter the sub-category name" : "Enter the name for the new item"}
@@ -526,6 +567,7 @@ export function FnSDropdowns() {
               {editDialog.type === "categories" && "Category"}
               {editDialog.type === "subcategories" && "Sub-Category"}
               {editDialog.type === "process_types" && "Process Type"}
+              {editDialog.type === "sc_cabinets" && "SC/Cabinet"}
             </DialogTitle>
             <DialogDescription>Make changes to the item</DialogDescription>
           </DialogHeader>

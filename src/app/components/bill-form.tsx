@@ -34,7 +34,7 @@ interface DropdownData {
   categories: { id: string; name: string }[];
   subCategories: { id: string; name: string }[];
   categorySubCategories: { category_id: string; subcategory_id: string }[];
-  scUsers: { id: string; name: string }[];
+  scCabinets: { id: string; name: string }[];
   processTypes: { id: string; name: string }[];
   activeCycle: { id: string; name: string } | null;
 }
@@ -53,7 +53,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
     categories: [],
     subCategories: [],
     categorySubCategories: [],
-    scUsers: [],
+    scCabinets: [],
     processTypes: [],
     activeCycle: null,
   });
@@ -62,7 +62,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   const [vendorId, setVendorId] = useState("");
   const [billNumber, setBillNumber] = useState("");
   const [companyId, setCompanyId] = useState("");
-  const [scId, setScId] = useState("");
+  const [scCabinetId, setScCabinetId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [subCategoryId, setSubCategoryId] = useState("");
   const [processTypeId, setProcessTypeId] = useState("");
@@ -85,7 +85,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       categoriesRes,
       subCategoriesRes,
       categorySubCategoriesRes,
-      scUsersRes,
+      scCabinetsRes,
       processTypesRes,
       cyclesRes,
     ] = await Promise.all([
@@ -94,7 +94,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       supabase.from("categories").select("id, name").eq("is_active", true).order("name"),
       supabase.from("subcategories").select("id, name").eq("is_active", true).order("name"),
       supabase.from("category_subcategories").select("category_id, subcategory_id"),
-      supabase.from("users").select("id, name").eq("role", "SC").eq("is_active", true).order("name"),
+      supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
       supabase.from("process_types").select("id, name").eq("is_active", true).order("name"),
       supabase.from("reimbursement_cycles").select("id, name").eq("is_active", true).single(),
     ]);
@@ -105,7 +105,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       categories: categoriesRes.data || [],
       subCategories: subCategoriesRes.data || [],
       categorySubCategories: categorySubCategoriesRes.data || [],
-      scUsers: scUsersRes.data || [],
+      scCabinets: scCabinetsRes.data || [],
       processTypes: processTypesRes.data || [],
       activeCycle: cyclesRes.data || null,
     });
@@ -136,7 +136,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   useEffect(() => {
     if (isGeneralBill) {
       setCompanyId("");
-      setScId("");
+      setScCabinetId("");
       setProcessTypeId("");
     }
   }, [isGeneralBill]);
@@ -213,7 +213,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
         vendor_id: vendorId,
         bill_number: billNumber,
         company_id: showCompanyFields ? companyId : null,
-        sc_id: showCompanyFields ? scId : null,
+        sc_id: showCompanyFields ? scCabinetId : null,
         category_id: categoryId,
         subcategory_id: subCategoryId,
         date: billDate,
@@ -233,7 +233,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       setCategoryId("");
       setSubCategoryId("");
       setCompanyId("");
-      setScId("");
+      setScCabinetId("");
       setProcessTypeId("");
       setAmount("");
       setFile(null);
@@ -368,13 +368,13 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
 
             {showCompanyFields && (
               <div className="space-y-2">
-                <Label htmlFor="sc">SC Name *</Label>
-                <Select value={scId} onValueChange={setScId}>
+                <Label htmlFor="sc">SC/Cabinet Name *</Label>
+                <Select value={scCabinetId} onValueChange={setScCabinetId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select SC" />
+                    <SelectValue placeholder="Select SC/Cabinet" />
                   </SelectTrigger>
                   <SelectContent>
-                    {dropdownData.scUsers.map((sc) => (
+                    {dropdownData.scCabinets.map((sc) => (
                       <SelectItem key={sc.id} value={sc.id}>
                         {sc.name}
                       </SelectItem>
