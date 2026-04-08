@@ -17,7 +17,6 @@ import {
 import { Alert, AlertDescription } from "@/ui/alert";
 import { AlertCircle, Upload, Loader2, X } from "lucide-react";
 import { Role } from "@/types";
-import { useToast } from "@/lib/use-toast";
 import { cn } from "@/lib/utils";
 
 const COMPANY_CATEGORY_NAMES = ["Company Related Expenses", "Corporate Engagement"];
@@ -46,7 +45,6 @@ interface DropdownData {
 
 export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   const supabase = createClient();
-  const { toast } = useToast();
   const isSC = userRole === "SC" || userRole === "FnS";
 
   const [loading, setLoading] = useState(false);
@@ -74,7 +72,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   const [amount, setAmount] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
-  const [isOnline, setIsOnline] = useState(false);
   const [isGeneralBill, setIsGeneralBill] = useState(false);
 
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
@@ -220,7 +217,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
         amount: parseFloat(amount),
         process_type: showCompanyFields && selectedProcessType ? selectedProcessType.name : null,
         file_url: fileUrl,
-        is_online: isOnline,
         status: "pending",
       };
 
@@ -238,7 +234,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       setAmount("");
       setFile(null);
       setFilePreview(null);
-      setIsOnline(false);
       setIsGeneralBill(false);
       onSuccess();
     } catch (err: any) {
@@ -412,13 +407,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
                 onChange={(e) => setAmount(e.target.value)}
                 required
               />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <Switch id="is-online" checked={isOnline} onCheckedChange={setIsOnline} />
-                <Label htmlFor="is-online" className="cursor-pointer">Online Transaction</Label>
-              </div>
             </div>
           </div>
 

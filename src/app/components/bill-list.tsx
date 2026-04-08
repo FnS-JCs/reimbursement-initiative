@@ -396,9 +396,6 @@ function BillCard({ bill, userId, isSC, onUpdateStatus, onReject }: BillCardProp
               {isRejected && (
                 <Badge variant="destructive">Rejected</Badge>
               )}
-              {bill.is_online && (
-                <Badge>Online</Badge>
-              )}
             </div>
 
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">

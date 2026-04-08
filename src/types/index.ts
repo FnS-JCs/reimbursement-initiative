@@ -82,7 +82,6 @@ export interface Bill {
   amount: number;
   process_type: string | null;
   file_url: string | null;
-  is_online: boolean;
   status: BillStatus;
   created_at: string;
 }
@@ -108,7 +107,6 @@ export interface BillFormData {
   process_type: string;
   amount: number;
   file: File | null;
-  is_online: boolean;
 }
 
 export interface BillFilters {
