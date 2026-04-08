@@ -13,30 +13,41 @@ export interface User {
 export interface Company {
   id: string;
   name: string;
+  is_active: boolean;
   created_at: string;
 }
 
 export interface Vendor {
   id: string;
   name: string;
+  is_active: boolean;
   created_at: string;
 }
 
 export interface Category {
   id: string;
   name: string;
+  is_active: boolean;
   created_at: string;
 }
 
 export interface SubCategory {
   id: string;
   name: string;
+  is_active: boolean;
   created_at: string;
 }
 
 export interface CategorySubCategory {
   category_id: string;
   subcategory_id: string;
+}
+
+export interface ProcessType {
+  id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface ReimbursementCycle {
