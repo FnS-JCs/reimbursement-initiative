@@ -45,7 +45,7 @@ interface BillListProps {
 
 interface BillWithRelations extends Bill {
   users?: { name: string; email: string; role: Role };
-  sc_user?: { name: string; email: string; role: Role };
+  sc_cabinets?: { name: string };
   vendors?: { name: string };
   companies?: { name: string };
   categories?: { name: string };
@@ -90,7 +90,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         .select(`
           *,
           users:user_id(name, email, role),
-          sc_user:sc_id(name, email, role),
+          sc_cabinets:sc_id(name),
           vendors:vendor_id(name),
           companies:company_id(name),
           categories:category_id(name),

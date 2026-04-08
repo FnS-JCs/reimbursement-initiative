@@ -21,7 +21,7 @@ import * as XLSX from "xlsx";
 
 interface BillWithRelations extends Bill {
   users?: { name: string; email: string; role: Role };
-  sc_user?: { name: string; email: string; role: Role };
+  sc_cabinets?: { name: string };
   vendors?: { name: string };
   companies?: { name: string };
   categories?: { name: string };
@@ -92,7 +92,7 @@ export function FnSExport() {
         .select(`
           *,
           users:user_id(name, email, role),
-          sc_user:sc_id(name, email, role),
+          sc_cabinets:sc_id(name),
           vendors:vendor_id(name),
           companies:company_id(name),
           categories:category_id(name),
@@ -171,7 +171,7 @@ export function FnSExport() {
           row["Sub-Category"] = bill.subcategories?.name || "";
         }
         if (selectedColumns.includes("sc_name")) {
-          row["SC Name"] = bill.sc_user?.name || "";
+          row["SC Name"] = bill.sc_cabinets?.name || "";
         }
         if (selectedColumns.includes("company")) {
           row["Company Name"] = bill.companies?.name || "";

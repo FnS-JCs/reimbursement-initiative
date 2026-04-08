@@ -36,7 +36,7 @@ import {
 
 interface BillWithRelations extends Bill {
   users?: { name: string; email: string; role: Role };
-  sc_user?: { name: string; email: string; role: Role };
+  sc_cabinets?: { name: string };
   vendors?: { name: string };
   companies?: { name: string };
   categories?: { name: string };
@@ -83,7 +83,7 @@ export function FnSAllBills() {
         .select(`
           *,
           users:user_id(name, email, role),
-          sc_user:sc_id(name, email, role),
+          sc_cabinets:sc_id(name),
           vendors:vendor_id(name),
           companies:company_id(name),
           categories:category_id(name),
@@ -396,7 +396,7 @@ export function FnSAllBills() {
                           {bill.subcategories?.name}
                         </div>
                       </td>
-                      <td className="px-4 py-3">{bill.sc_user?.name || "-"}</td>
+                      <td className="px-4 py-3">{bill.sc_cabinets?.name || "-"}</td>
                       <td className="px-4 py-3 text-right font-medium">
                         {formatCurrency(bill.amount)}
                       </td>
