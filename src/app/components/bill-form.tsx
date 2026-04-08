@@ -20,7 +20,12 @@ import { Role } from "@/types";
 import { useToast } from "@/lib/use-toast";
 import { cn } from "@/lib/utils";
 
-const COMPANY_CATEGORIES = ["Company Related Expenses", "Corporate Engagement"];
+const COMPANY_CATEGORY_NAMES = ["Company Related Expenses", "Corporate Engagement"];
+
+function isCompanyCategoryById(categories: { id: string; name: string }[], categoryId: string) {
+  const name = categories.find(c => c.id === categoryId)?.name || "";
+  return COMPANY_CATEGORY_NAMES.includes(name);
+}
 
 interface BillFormProps {
   userId: string;
@@ -73,9 +78,8 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   const [isGeneralBill, setIsGeneralBill] = useState(false);
 
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
-  const [selectedCategoryName, setSelectedCategoryName] = useState<string>("");
 
-  const isCompanyCategory = COMPANY_CATEGORIES.includes(selectedCategoryName);
+  const isCompanyCategory = isCompanyCategoryById(dropdownData.categories, categoryId);
   const showCompanyFields = !isGeneralBill && isCompanyCategory;
 
   const fetchDropdownData = useCallback(async () => {
@@ -117,8 +121,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
 
   useEffect(() => {
     if (categoryId) {
-      const cat = dropdownData.categories.find((c) => c.id === categoryId);
-      setSelectedCategoryName(cat?.name || "");
       const subCatIds = dropdownData.categorySubCategories
         .filter((cs) => cs.category_id === categoryId)
         .map((cs) => cs.subcategory_id);
@@ -126,7 +128,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       setFilteredSubCategories(filtered);
       setSubCategoryId("");
     } else {
-      setSelectedCategoryName("");
       setFilteredSubCategories([]);
     }
     setCompanyId("");
