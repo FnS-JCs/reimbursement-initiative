@@ -136,7 +136,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   useEffect(() => {
     if (isGeneralBill) {
       setCompanyId("");
-      setScCabinetId("");
       setProcessTypeId("");
     }
   }, [isGeneralBill]);
@@ -175,7 +174,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
     setLoading(false);
     setError(null);
 
-    if (!billDate || !vendorId || !billNumber || !categoryId || !subCategoryId || !amount) {
+    if (!billDate || !vendorId || !billNumber || !categoryId || !subCategoryId || !scCabinetId || !amount) {
       setError("Please fill in all required fields");
       setLoading(false);
       return;
@@ -213,7 +212,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
         vendor_id: vendorId,
         bill_number: billNumber,
         company_id: showCompanyFields ? companyId : null,
-        sc_id: showCompanyFields ? scCabinetId : null,
+        sc_id: scCabinetId,
         category_id: categoryId,
         subcategory_id: subCategoryId,
         date: billDate,
@@ -348,6 +347,22 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
               </Select>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="sc">SC/Cabinet Name *</Label>
+              <Select value={scCabinetId} onValueChange={setScCabinetId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select SC/Cabinet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {dropdownData.scCabinets.map((sc) => (
+                    <SelectItem key={sc.id} value={sc.id}>
+                      {sc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {showCompanyFields && (
               <div className="space-y-2">
                 <Label htmlFor="company">Company Name *</Label>
@@ -359,24 +374,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
                     {dropdownData.companies.map((company) => (
                       <SelectItem key={company.id} value={company.id}>
                         {company.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {showCompanyFields && (
-              <div className="space-y-2">
-                <Label htmlFor="sc">SC/Cabinet Name *</Label>
-                <Select value={scCabinetId} onValueChange={setScCabinetId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select SC/Cabinet" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dropdownData.scCabinets.map((sc) => (
-                      <SelectItem key={sc.id} value={sc.id}>
-                        {sc.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
