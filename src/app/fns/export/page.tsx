@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/supabase/server";
+import { FnSExport } from "@/app/components/fns-export";
 import { normalizeRole } from "@/lib/normalize-role";
 
-export default async function HomePage() {
+export default async function ExportPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -12,13 +13,13 @@ export default async function HomePage() {
 
   const { data: appUser } = await supabase
     .from("users")
-    .select("role")
+    .select("id, role")
     .eq("id", user.id)
     .single();
 
-  if (normalizeRole(appUser?.role) === "fns") {
-    redirect("/fns");
+  if (!appUser || normalizeRole(appUser.role) !== "fns") {
+    redirect("/dashboard");
   }
 
-  redirect("/dashboard");
+  return <FnSExport />;
 }

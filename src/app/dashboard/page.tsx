@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/supabase/server";
-import { normalizeRole } from "@/lib/normalize-role";
+import { redirect } from "next/navigation";
+import { BillDashboard } from "@/app/components/bill-dashboard";
 
-export default async function HomePage() {
+export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -12,13 +12,13 @@ export default async function HomePage() {
 
   const { data: appUser } = await supabase
     .from("users")
-    .select("role")
+    .select("id, role")
     .eq("id", user.id)
     .single();
 
-  if (normalizeRole(appUser?.role) === "fns") {
-    redirect("/fns");
+  if (!appUser) {
+    redirect("/auth/login");
   }
 
-  redirect("/dashboard");
+  return <BillDashboard userId={user.id} userRole={appUser.role} />;
 }
