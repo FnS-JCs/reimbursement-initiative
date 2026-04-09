@@ -143,7 +143,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     const [companiesRes, categoriesRes, scUsersRes] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
-      supabase.from("users").select("id, name").eq("role", "SC").order("name"),
+      supabase.from("users").select("id, name").eq("role", "sc").order("name"),
     ]);
 
     setDropdownData({

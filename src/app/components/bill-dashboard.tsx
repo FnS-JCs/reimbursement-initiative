@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 import { Role } from "@/types";
+import { normalizeRole } from "@/lib/normalize-role";
 import { BillForm } from "./bill-form";
 import { BillList } from "./bill-list";
 import { useToast } from "@/lib/use-toast";
@@ -15,7 +16,8 @@ interface BillDashboardProps {
 export function BillDashboard({ userId, userRole }: BillDashboardProps) {
   const { toast } = useToast();
   const [refreshKey, setRefreshKey] = useState(0);
-  const isSC = userRole === "SC" || userRole === "FnS";
+  const normalizedRole = normalizeRole(userRole);
+  const isSC = normalizedRole === "sc" || normalizedRole === "fns";
 
   const handleBillSubmitted = () => {
     setRefreshKey((k) => k + 1);
@@ -30,7 +32,7 @@ export function BillDashboard({ userId, userRole }: BillDashboardProps) {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-muted-foreground">
-          {userRole === "SC"
+          {normalizedRole === "sc"
             ? "Manage your bills and reimburse JCs"
             : "Submit and track your reimbursement bills"}
         </p>

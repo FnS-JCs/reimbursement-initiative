@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
 import { User } from "@/types";
+import { normalizeRole } from "@/lib/normalize-role";
 import { LogOut, Menu, User as UserIcon } from "lucide-react";
 
 interface DashboardHeaderProps {
@@ -27,7 +28,8 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
     router.push("/auth/login");
   };
 
-  const roleLabel = user.role === "SC" ? "Senior Coordinator" : "Junior Coordinator";
+  const roleLabel =
+    normalizeRole(user.role) === "sc" ? "Senior Coordinator" : "Junior Coordinator";
 
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:bg-gray-900/95 dark:border-gray-800">

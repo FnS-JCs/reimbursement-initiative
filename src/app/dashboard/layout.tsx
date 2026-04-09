@@ -19,11 +19,11 @@ export default async function DashboardLayout({
   const { data: appUser } = await supabase
     .from("users")
     .select("*")
-    .eq("id", user.id)
+    .eq("email", user.email?.toLowerCase() || "")
     .single();
 
-  if (!appUser) {
-    redirect("/auth/login");
+  if (!appUser?.is_active) {
+    redirect("/auth/login?error=access_denied");
   }
 
   if (normalizeRole(appUser.role) === "fns") {

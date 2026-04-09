@@ -18,10 +18,10 @@ export default async function FnSLayout({
   const { data: appUser } = await supabase
     .from("users")
     .select("*")
-    .eq("id", user.id)
+    .eq("email", user.email?.toLowerCase() || "")
     .single();
 
-  if (!appUser || normalizeRole(appUser.role) !== "fns") {
+  if (!appUser?.is_active || normalizeRole(appUser.role) !== "fns") {
     redirect("/dashboard");
   }
 

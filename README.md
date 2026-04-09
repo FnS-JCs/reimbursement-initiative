@@ -55,8 +55,8 @@ Update `.env.local` with:
 In your Supabase dashboard:
 
 1. Go to **Authentication** > **Providers**
-2. Enable **Google** provider and add your Google OAuth credentials
-3. Configure redirect URLs if needed
+2. Enable **Google** sign-in
+3. Configure your Google OAuth credentials and redirect URLs
 
 ### 5. Run the Development Server
 
@@ -68,9 +68,10 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## First-Time Setup
 
-1. Create an account using email/password or Google OAuth
-2. Manually insert your user into the `users` table with the appropriate role (`jc`, `sc`, or `fns`)
-3. Log in and start using the app
+1. Make sure the user's Google-account email is listed in the `users` table with the correct role
+2. The user signs in with Google
+3. The app checks the signed-in email against the whitelist
+4. Whitelisted users are redirected to the correct dashboard by role
 
 ## Project Structure
 

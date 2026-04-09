@@ -10,7 +10,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Users table (extends Supabase Auth)
 CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  auth_user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL,
   google_id TEXT UNIQUE,
   email TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
@@ -160,14 +161,14 @@ ALTER TABLE bills ENABLE ROW LEVEL SECURITY;
 -- Users policies
 CREATE POLICY "Users can view their own profile"
   ON users FOR SELECT
-  USING (auth.uid() = id);
+  USING (auth_user_id = auth.uid());
 
 CREATE POLICY "FnS can view all users"
   ON users FOR SELECT
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -176,7 +177,7 @@ CREATE POLICY "FnS can insert users"
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -185,7 +186,7 @@ CREATE POLICY "FnS can update users"
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -193,14 +194,19 @@ CREATE POLICY "FnS can update users"
 CREATE POLICY "JC can view own bills"
   ON bills FOR SELECT
   USING (
-    submitted_by = auth.uid()
+    submitted_by = (
+      SELECT id FROM users WHERE auth_user_id = auth.uid()
+    )
     AND is_voided = false
   );
 
 CREATE POLICY "SC can view own bills and bills assigned to them"
   ON bills FOR SELECT
   USING (
-    (submitted_by = auth.uid() OR sc_id = auth.uid())
+    (
+      submitted_by = (SELECT id FROM users WHERE auth_user_id = auth.uid())
+      OR sc_id = (SELECT id FROM users WHERE auth_user_id = auth.uid())
+    )
     AND is_voided = false
   );
 
@@ -209,7 +215,7 @@ CREATE POLICY "FnS can view all non-voided bills"
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -220,11 +226,11 @@ CREATE POLICY "Authenticated users can insert bills"
 CREATE POLICY "SC can update physical_received, is_reimbursed, rejection_reason"
   ON bills FOR UPDATE
   USING (
-    sc_id = auth.uid()
+    sc_id = (SELECT id FROM users WHERE auth_user_id = auth.uid())
     AND is_voided = false
   )
   WITH CHECK (
-    sc_id = auth.uid()
+    sc_id = (SELECT id FROM users WHERE auth_user_id = auth.uid())
   );
 
 CREATE POLICY "FnS can update all bill fields"
@@ -232,7 +238,7 @@ CREATE POLICY "FnS can update all bill fields"
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -240,7 +246,7 @@ CREATE POLICY "FnS can update all bill fields"
 CREATE POLICY "Everyone can view active companies"
   ON companies FOR SELECT
   USING (is_active = true OR EXISTS (
-    SELECT 1 FROM users WHERE id = auth.uid() AND role = 'fns'
+    SELECT 1 FROM users WHERE auth_user_id = auth.uid() AND role = 'fns'
   ));
 
 CREATE POLICY "FnS can manage companies"
@@ -248,7 +254,7 @@ CREATE POLICY "FnS can manage companies"
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -256,7 +262,7 @@ CREATE POLICY "FnS can manage companies"
 CREATE POLICY "Everyone can view active vendors"
   ON vendors FOR SELECT
   USING (is_active = true OR EXISTS (
-    SELECT 1 FROM users WHERE id = auth.uid() AND role = 'fns'
+    SELECT 1 FROM users WHERE auth_user_id = auth.uid() AND role = 'fns'
   ));
 
 CREATE POLICY "FnS can manage vendors"
@@ -264,7 +270,7 @@ CREATE POLICY "FnS can manage vendors"
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -272,7 +278,7 @@ CREATE POLICY "FnS can manage vendors"
 CREATE POLICY "Everyone can view active categories"
   ON categories FOR SELECT
   USING (is_active = true OR EXISTS (
-    SELECT 1 FROM users WHERE id = auth.uid() AND role = 'fns'
+    SELECT 1 FROM users WHERE auth_user_id = auth.uid() AND role = 'fns'
   ));
 
 CREATE POLICY "FnS can manage categories"
@@ -280,7 +286,7 @@ CREATE POLICY "FnS can manage categories"
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -288,7 +294,7 @@ CREATE POLICY "FnS can manage categories"
 CREATE POLICY "Everyone can view active sub-categories"
   ON sub_categories FOR SELECT
   USING (is_active = true OR EXISTS (
-    SELECT 1 FROM users WHERE id = auth.uid() AND role = 'fns'
+    SELECT 1 FROM users WHERE auth_user_id = auth.uid() AND role = 'fns'
   ));
 
 CREATE POLICY "FnS can manage sub-categories"
@@ -296,7 +302,7 @@ CREATE POLICY "FnS can manage sub-categories"
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -304,7 +310,7 @@ CREATE POLICY "FnS can manage sub-categories"
 CREATE POLICY "Everyone can view active process types"
   ON process_types FOR SELECT
   USING (is_active = true OR EXISTS (
-    SELECT 1 FROM users WHERE id = auth.uid() AND role = 'fns'
+    SELECT 1 FROM users WHERE auth_user_id = auth.uid() AND role = 'fns'
   ));
 
 CREATE POLICY "FnS can manage process types"
@@ -312,7 +318,7 @@ CREATE POLICY "FnS can manage process types"
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -326,7 +332,7 @@ CREATE POLICY "FnS can manage cycles"
   USING (
     EXISTS (
       SELECT 1 FROM users
-      WHERE id = auth.uid() AND role = 'fns'
+      WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 
@@ -363,7 +369,7 @@ CREATE POLICY "FnS can view all bills"
   USING (
     bucket_id = 'bill-uploads'
     AND EXISTS (
-      SELECT 1 FROM users WHERE id = auth.uid() AND role = 'fns'
+      SELECT 1 FROM users WHERE auth_user_id = auth.uid() AND role = 'fns'
     )
   );
 

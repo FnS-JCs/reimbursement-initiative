@@ -1,99 +1,57 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/supabase/client";
-import { normalizeRole } from "@/lib/normalize-role";
 import { Button } from "@/ui/button";
-import { Input } from "@/ui/input";
-import { Label } from "@/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
-import { Separator } from "@/ui/separator";
 import { Alert, AlertDescription } from "@/ui/alert";
+import { normalizeRole } from "@/lib/normalize-role";
 import { AlertCircle, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
+  useEffect(() => {
+    const urlError = searchParams.get("error");
+    const urlMessage = searchParams.get("message");
+    if (urlError === "access_denied") {
+      setError("Access denied. This Google account email is not whitelisted or is inactive.");
+      return;
+    }
+    if (urlMessage) {
+      setError(urlMessage);
+      return;
+    }
 
-  async function handleEmailLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (signInError) throw signInError;
+    let mounted = true;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) return;
 
       const { data: appUser } = await supabase
         .from("users")
-        .select("role")
-        .eq("id", data.user.id)
-        .single();
+        .select("role, is_active")
+        .eq("email", user.email.toLowerCase())
+        .maybeSingle();
 
-      if (!appUser) {
-        await supabase.auth.signOut();
-        setError("Access denied — contact FnS");
-        return;
-      }
+      if (!mounted || !appUser?.is_active) return;
 
       if (normalizeRole(appUser.role) === "fns") {
-        router.push("/fns");
+        router.replace("/fns");
       } else {
-        router.push("/dashboard");
+        router.replace("/dashboard");
       }
-    } catch (err: any) {
-      setError(err.message || "Login failed");
-    } finally {
-      setLoading(false);
-    }
-  }
+    })();
 
-  async function handleEmailSignup(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { name },
-        },
-      });
-
-      if (signUpError) throw signUpError;
-
-      if (data.user) {
-        const { error: profileError } = await supabase.from("users").insert({
-          id: data.user.id,
-          email,
-          name,
-          role: "jc",
-        });
-
-        if (profileError) throw profileError;
-      }
-
-      setError("Account created! You can now log in.");
-    } catch (err: any) {
-      setError(err.message || "Signup failed");
-    } finally {
-      setLoading(false);
-    }
-  }
+    return () => {
+      mounted = false;
+    };
+  }, [router, searchParams, supabase]);
 
   async function handleGoogleLogin() {
     setLoading(true);
@@ -124,67 +82,27 @@ export default function LoginPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">FnS Reimbursement</CardTitle>
           <CardDescription>
-            The Placement Cell, SRCC — Finance & Strategy
+            Sign in with your whitelisted Google account
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
-            </TabsList>
+          <div className="space-y-4">
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-            <TabsContent value="login" className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <form onSubmit={handleEmailLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="your@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Login with Email
-                </Button>
-              </form>
-
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <Separator />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or</span>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                onClick={handleGoogleLogin}
-                disabled={loading}
-                className="w-full"
-              >
+            <Button
+              variant="outline"
+              onClick={handleGoogleLogin}
+              disabled={loading}
+              className="w-full"
+            >
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
                 <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
                   <path
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -203,64 +121,14 @@ export default function LoginPage() {
                     fill="#EA4335"
                   />
                 </svg>
-                Sign in with Google
-              </Button>
-            </TabsContent>
-
-            <TabsContent value="signup" className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
               )}
+              Sign in with Google
+            </Button>
 
-              <form onSubmit={handleEmailSignup} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="signup-name">Full Name</Label>
-                  <Input
-                    id="signup-name"
-                    type="text"
-                    placeholder="Your Name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
-                  <Input
-                    id="signup-email"
-                    type="email"
-                    placeholder="your@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <Input
-                    id="signup-password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Create Account
-                </Button>
-              </form>
-
-              <p className="text-xs text-center text-muted-foreground">
-                Note: Your account will need to be approved by FnS before you can
-                access the app.
-              </p>
-            </TabsContent>
-          </Tabs>
+            <p className="text-xs text-center text-muted-foreground">
+              Access is granted only if your Google account email is whitelisted by FnS.
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>

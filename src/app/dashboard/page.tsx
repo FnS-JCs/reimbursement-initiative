@@ -12,13 +12,13 @@ export default async function DashboardPage() {
 
   const { data: appUser } = await supabase
     .from("users")
-    .select("id, role")
-    .eq("id", user.id)
+    .select("id, role, is_active")
+    .eq("email", user.email?.toLowerCase() || "")
     .single();
 
-  if (!appUser) {
-    redirect("/auth/login");
+  if (!appUser?.is_active) {
+    redirect("/auth/login?error=access_denied");
   }
 
-  return <BillDashboard userId={user.id} userRole={appUser.role} />;
+  return <BillDashboard userId={appUser.id} userRole={appUser.role} />;
 }

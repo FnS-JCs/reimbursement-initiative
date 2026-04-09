@@ -5,7 +5,7 @@ import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card";
+import { Card, CardContent } from "@/ui/card";
 import { Badge } from "@/ui/badge";
 import {
   Dialog,
@@ -24,7 +24,8 @@ import {
 } from "@/ui/select";
 import { User, Role } from "@/types";
 import { useToast } from "@/lib/use-toast";
-import { UserPlus, Edit, Trash2, Loader2, Shield, UserCircle } from "lucide-react";
+import { formatRoleLabel, normalizeRole } from "@/lib/normalize-role";
+import { Edit, Power, Loader2, Shield, UserCircle } from "lucide-react";
 
 export function FnSUsers() {
   const supabase = createClient();
@@ -33,38 +34,28 @@ export function FnSUsers() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [addDialog, setAddDialog] = useState(false);
   const [editDialog, setEditDialog] = useState<{ open: boolean; user: User | null }>({
     open: false,
     user: null,
   });
-  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; userId: string | null }>({
+  const [statusDialog, setStatusDialog] = useState<{ open: boolean; user: User | null }>({
     open: false,
-    userId: null,
+    user: null,
   });
 
-  const [addForm, setAddForm] = useState({
-    email: "",
-    name: "",
-    role: "JC" as Role,
-  });
   const [editForm, setEditForm] = useState({
     name: "",
-    role: "JC" as Role,
+    role: "jc" as Role,
   });
   const [submitting, setSubmitting] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("users")
-        .select("*")
-        .order("name");
-
+      const { data, error } = await supabase.from("users").select("*").order("name");
       if (error) throw error;
       setUsers(data || []);
-    } catch (err) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to fetch users",
@@ -87,7 +78,7 @@ export function FnSUsers() {
       const { error } = await supabase
         .from("users")
         .update({
-          name: editForm.name,
+          name: editForm.name.trim(),
           role: editForm.role,
         })
         .eq("id", editDialog.user.id);
@@ -96,7 +87,7 @@ export function FnSUsers() {
 
       toast({
         title: "User updated",
-        description: "User has been updated successfully",
+        description: "User details have been updated successfully.",
       });
 
       setEditDialog({ open: false, user: null });
@@ -112,29 +103,32 @@ export function FnSUsers() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteDialog.userId) return;
+  const handleToggleActive = async () => {
+    if (!statusDialog.user) return;
 
+    const nextActive = !statusDialog.user.is_active;
     setSubmitting(true);
     try {
       const { error } = await supabase
         .from("users")
-        .delete()
-        .eq("id", deleteDialog.userId);
+        .update({ is_active: nextActive })
+        .eq("id", statusDialog.user.id);
 
       if (error) throw error;
 
       toast({
-        title: "User deleted",
-        description: "User has been deleted",
+        title: nextActive ? "User activated" : "User deactivated",
+        description: nextActive
+          ? "The user can log in again."
+          : "The user can no longer log in.",
       });
 
-      setDeleteDialog({ open: false, userId: null });
+      setStatusDialog({ open: false, user: null });
       fetchUsers();
     } catch (err: any) {
       toast({
         title: "Error",
-        description: err.message || "Failed to delete user",
+        description: err.message || "Failed to update user status",
         variant: "destructive",
       });
     } finally {
@@ -145,16 +139,16 @@ export function FnSUsers() {
   const openEditDialog = (user: User) => {
     setEditForm({
       name: user.name,
-      role: user.role,
+      role: normalizeRole(user.role) || "jc",
     });
     setEditDialog({ open: true, user });
   };
 
   const roleBadgeVariant = (role: Role) => {
-    switch (role) {
-      case "FnS":
+    switch (normalizeRole(role)) {
+      case "fns":
         return "default";
-      case "SC":
+      case "sc":
         return "secondary";
       default:
         return "outline";
@@ -166,7 +160,7 @@ export function FnSUsers() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">User Management</h1>
         <p className="text-muted-foreground">
-          Manage all users in the system
+          Manage the whitelisted Google-account emails, roles, and access status.
         </p>
       </div>
 
@@ -185,6 +179,7 @@ export function FnSUsers() {
                     <th className="px-4 py-3 text-left font-medium">Email</th>
                     <th className="px-4 py-3 text-left font-medium">Roll No</th>
                     <th className="px-4 py-3 text-center font-medium">Role</th>
+                    <th className="px-4 py-3 text-center font-medium">Status</th>
                     <th className="px-4 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -193,7 +188,7 @@ export function FnSUsers() {
                     <tr key={user.id} className="border-b last:border-0">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          {user.role === "FnS" ? (
+                          {normalizeRole(user.role) === "fns" ? (
                             <Shield className="h-4 w-4 text-primary" />
                           ) : (
                             <UserCircle className="h-4 w-4 text-muted-foreground" />
@@ -205,26 +200,29 @@ export function FnSUsers() {
                       <td className="px-4 py-3">{user.roll_no || "-"}</td>
                       <td className="px-4 py-3 text-center">
                         <Badge variant={roleBadgeVariant(user.role)}>
-                          {user.role}
+                          {formatRoleLabel(user.role)}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <Badge variant={user.is_active ? "secondary" : "outline"}>
+                          {user.is_active ? "Active" : "Inactive"}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(user)}
-                          >
+                          <Button variant="ghost" size="sm" onClick={() => openEditDialog(user)}>
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() =>
-                              setDeleteDialog({ open: true, userId: user.id })
-                            }
+                            onClick={() => setStatusDialog({ open: true, user })}
                           >
-                            <Trash2 className="h-4 w-4 text-destructive" />
+                            <Power
+                              className={`h-4 w-4 ${
+                                user.is_active ? "text-amber-500" : "text-green-600"
+                              }`}
+                            />
                           </Button>
                         </div>
                       </td>
@@ -244,9 +242,7 @@ export function FnSUsers() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>
-              Make changes to the user account
-            </DialogDescription>
+            <DialogDescription>Update the assigned name and role.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -263,25 +259,22 @@ export function FnSUsers() {
                 value={editForm.role}
                 onValueChange={(v) => setEditForm({ ...editForm, role: v as Role })}
               >
-                <SelectTrigger>
+                <SelectTrigger id="edit-role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="JC">Junior Coordinator (JC)</SelectItem>
-                  <SelectItem value="SC">Senior Coordinator (SC)</SelectItem>
-                  <SelectItem value="FnS">Finance & Strategy (FnS)</SelectItem>
+                  <SelectItem value="jc">Junior Coordinator (JC)</SelectItem>
+                  <SelectItem value="sc">Senior Coordinator (SC)</SelectItem>
+                  <SelectItem value="fns">Finance & Strategy (FnS)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditDialog({ open: false, user: null })}
-            >
+            <Button variant="outline" onClick={() => setEditDialog({ open: false, user: null })}>
               Cancel
             </Button>
-            <Button onClick={handleEdit} disabled={submitting}>
+            <Button onClick={handleEdit} disabled={submitting || !editForm.name.trim()}>
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Changes
             </Button>
@@ -290,26 +283,27 @@ export function FnSUsers() {
       </Dialog>
 
       <Dialog
-        open={deleteDialog.open}
-        onOpenChange={(open) => setDeleteDialog({ open, userId: null })}
+        open={statusDialog.open}
+        onOpenChange={(open) => setStatusDialog({ open, user: null })}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete User</DialogTitle>
+            <DialogTitle>
+              {statusDialog.user?.is_active ? "Deactivate User" : "Activate User"}
+            </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this user? This action cannot be undone.
+              {statusDialog.user?.is_active
+                ? "This will block the user from logging in until reactivated."
+                : "This will allow the user to log in again."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteDialog({ open: false, userId: null })}
-            >
+            <Button variant="outline" onClick={() => setStatusDialog({ open: false, user: null })}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={submitting}>
+            <Button onClick={handleToggleActive} disabled={submitting}>
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete
+              {statusDialog.user?.is_active ? "Deactivate" : "Activate"}
             </Button>
           </DialogFooter>
         </DialogContent>

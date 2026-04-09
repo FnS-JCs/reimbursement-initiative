@@ -18,6 +18,7 @@ import { Alert, AlertDescription } from "@/ui/alert";
 import { AlertCircle, Upload, Loader2, X } from "lucide-react";
 import { Role } from "@/types";
 import { cn } from "@/lib/utils";
+import { normalizeRole } from "@/lib/normalize-role";
 
 const COMPANY_CATEGORY_NAMES = ["Company Related Expenses", "Corporate Engagement"];
 
@@ -45,7 +46,8 @@ interface DropdownData {
 
 export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   const supabase = createClient();
-  const isSC = userRole === "SC" || userRole === "FnS";
+  const normalizedRole = normalizeRole(userRole);
+  const isSC = normalizedRole === "sc" || normalizedRole === "fns";
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);

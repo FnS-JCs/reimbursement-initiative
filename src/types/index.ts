@@ -1,11 +1,13 @@
-export type Role = 'JC' | 'SC' | 'FnS';
+export type Role = 'jc' | 'sc' | 'fns';
 
 export interface User {
   id: string;
+  auth_user_id?: string | null;
   email: string;
   name: string;
   roll_no: string | null;
   role: Role;
+  is_active?: boolean;
   upi_id: string | null;
   created_at: string;
 }

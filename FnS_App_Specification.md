@@ -27,7 +27,7 @@ The app replaces the current manual reimbursement process — where bills are tr
 ### 2.2 Role Clarifications
 
 - FnS JCs have a dual identity: they can submit bills as regular JCs AND access the FnS admin portal through one shared FnS Google account.
-- FnS SCs are treated as normal SCs in the app. They have their own SC login (personal Google account) and separately use the shared FnS account for admin work.
+- FnS SCs are treated as normal SCs in the app. They have their own SC login and separately use the shared FnS account for admin work.
 - There is NO permission distinction between FnS JCs and FnS SCs within the FnS portal — all FnS members share identical portal access.
 - SCs are permanently assigned to specific companies for the entire placement season (not per-process).
 - One SC can head multiple concurrent company processes.
@@ -91,8 +91,8 @@ Each FnS JC is the point of contact (POC) for a subset of SCs. This assignment i
 
 ### 4.1 Login System
 
-- Authentication supports two methods: **Google OAuth** and **email/password login**.
-- Both methods are whitelist-gated — only users pre-registered by FnS in the backend can log in. Self-signup is not permitted; any login attempt from an account not in the whitelist is rejected.
+- Authentication uses **Google OAuth login**.
+- Login is whitelist-gated by email — only users whose Google-account email is pre-registered by FnS in the backend can log in. Self-signup is not permitted; any login attempt from an account not in the whitelist is rejected.
 - The FnS portal is accessed via one shared FnS account — all FnS members use this single login.
 - Upon login, users are automatically directed to the correct view based on their account's role.
 - Users not in the whitelist see an "Access denied — contact FnS" screen.
@@ -156,7 +156,7 @@ Bills submitted by the SC themselves are view-only (no action buttons).
 
 **Tab: User Management**
 - Add, remove/deactivate, and edit registered user accounts and their roles (JC / SC).
-- Set login method per user (Google OAuth or email/password).
+- Set each user's email, role, and active status.
 
 **Tab: Cycles**
 - FnS creates and manages reimbursement cycles. Each cycle has a name, start date, and end date.
@@ -304,7 +304,7 @@ This is not a priority for the initial build. The format and structure will be d
 | SC Name is an independent dropdown (not filtered by company) | Simpler UX; JC selects company and SC separately as independent fields |
 | Process types stored in backend, editable by FnS | Allows flexibility without a code deploy; managed via Dropdowns tab |
 | All dropdown data consolidated into one Dropdowns tab | Simpler FnS navigation; fewer tabs to manage |
-| Dual login support (Google OAuth + email/password) | Accommodates users without Google accounts; both methods are whitelist-gated |
+| Google login with email whitelist | Lets users sign in with existing Google accounts while FnS controls access centrally |
 | Google Drive bill storage deferred | Feasible future option; Supabase Storage is simpler for the initial build |
 | Cycle-based bill visibility | JCs and SCs only see the current cycle's bills by default, reducing noise; historical access available via toggle |
 | Export format is Excel (.xlsx), not CSV | Matches Admin Office requirements; allows richer formatting in future |
@@ -329,7 +329,7 @@ The app is a **single-page web application (SPA)** with tab-based navigation. Th
 
 ```
 App Shell
-├── Login screen (Google OAuth or email/password)
+├── Login screen (Google OAuth)
 └── Post-login shell (role-aware)
     ├── JC Shell   → Tab: Submit Bill | Tab: My Bills
     ├── SC Shell   → Tab: Submit Bill | Tab: My Bills
@@ -339,13 +339,12 @@ App Shell
 
 ### 10.2 Authentication Flow
 
-Two login methods are supported. Both are whitelist-gated against the `users` table.
+Google login is whitelist-gated by email against the `users` table.
 
 ```
 User visits app
   └─ Not logged in → Show login screen
-       ├─ Option A: "Sign in with Google" (OAuth)
-       └─ Option B: Email + password (Supabase Auth)
+       └─ Sign in with Google (Supabase Auth)
 
   After credential verification:
     └─ Check users table for matching email / google_id
@@ -450,7 +449,7 @@ Column selector: choose which fields to include
 
 ```
 User list: name | email | role | login method | status
-  ├─ [Add User] → form: name, email, role (JC/SC/FnS), login method (OAuth/password)
+  ├─ [Add User] → form: name, email, role (JC/SC/FnS)
   ├─ [Edit]     → update any field
   └─ [Deactivate] → sets is_active = false (blocks login)
 ```

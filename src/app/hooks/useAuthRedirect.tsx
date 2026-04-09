@@ -16,10 +16,10 @@ export function useAuthRedirect() {
         if (!user) return;
         const { data: appUser } = await supabase
           .from('users')
-          .select('role')
-          .eq('id', user.id)
+          .select('role, is_active')
+          .eq('email', user.email?.toLowerCase() || '')
           .maybeSingle();
-        if (!appUser) {
+        if (!appUser || !appUser.is_active) {
           await supabase.auth.signOut();
           if (mounted) router.replace('/auth/login?error=access_denied');
           return;

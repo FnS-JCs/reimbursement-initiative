@@ -12,11 +12,15 @@ export default async function HomePage() {
 
   const { data: appUser } = await supabase
     .from("users")
-    .select("role")
-    .eq("id", user.id)
+    .select("role, is_active")
+    .eq("email", user.email?.toLowerCase() || "")
     .single();
 
-  if (normalizeRole(appUser?.role) === "fns") {
+  if (!appUser?.is_active) {
+    redirect("/auth/login?error=access_denied");
+  }
+
+  if (normalizeRole(appUser.role) === "fns") {
     redirect("/fns");
   }
 

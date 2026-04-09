@@ -72,7 +72,7 @@ export function FnSExport() {
     const [companiesRes, categoriesRes, scUsersRes, cyclesRes] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
-      supabase.from("users").select("id, name").eq("role", "SC").order("name"),
+      supabase.from("users").select("id, name").eq("role", "sc").order("name"),
       supabase.from("reimbursement_cycles").select("id, name").order("created_at", { ascending: false }),
     ]);
 

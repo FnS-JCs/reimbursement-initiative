@@ -19,3 +19,11 @@ export function normalizeRole(role: string | null | undefined): NormalizedRole |
   if (r.includes('sc')) return 'sc';
   return null;
 }
+
+export function formatRoleLabel(role: string | null | undefined): string {
+  const normalized = normalizeRole(role);
+  if (normalized === 'fns') return 'FnS';
+  if (normalized === 'sc') return 'SC';
+  if (normalized === 'jc') return 'JC';
+  return 'Unknown';
+}
