@@ -45,7 +45,7 @@ interface BillListProps {
 
 interface BillWithRelations extends Bill {
   users?: { name: string; email: string; role: Role };
-  sc_cabinets?: { name: string };
+  sc_cabinets?: { name: string; user_id: string | null };
   vendors?: { name: string };
   companies?: { name: string };
   categories?: { name: string };
@@ -90,7 +90,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         .select(`
           *,
           users:user_id(name, email, role),
-          sc_cabinets:sc_id(name),
+          sc_cabinets:sc_id(name, user_id),
           vendors:vendor_id(name),
           companies:company_id(name),
           categories:category_id(name),
@@ -143,7 +143,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     const [companiesRes, categoriesRes, scUsersRes] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
-      supabase.from("users").select("id, name").eq("role", "sc").order("name"),
+      supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
     ]);
 
     setDropdownData({
@@ -372,7 +372,7 @@ interface BillCardProps {
 
 function BillCard({ bill, userId, isSC, onUpdateStatus, onReject }: BillCardProps) {
   const isSubmitter = bill.user_id === userId;
-  const isAssignedSC = bill.sc_id === userId;
+  const isAssignedSC = bill.sc_cabinets?.user_id === userId;
   const canTakeAction = isSC && !isSubmitter && isAssignedSC;
   const isRejected = bill.status === "rejected";
 
@@ -412,6 +412,11 @@ function BillCard({ bill, userId, isSC, onUpdateStatus, onReject }: BillCardProp
             <p className="text-sm text-muted-foreground">
               Submitted by: {bill.users?.name || "Unknown"}
             </p>
+            {bill.sc_cabinets?.name && (
+              <p className="text-sm text-muted-foreground">
+                SC/Cabinet: {bill.sc_cabinets.name}
+              </p>
+            )}
 
             {bill.file_url && (
               <a

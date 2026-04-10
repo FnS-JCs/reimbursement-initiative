@@ -13,11 +13,11 @@ export default async function ExportPage() {
 
   const { data: appUser } = await supabase
     .from("users")
-    .select("id, role")
-    .eq("id", user.id)
+    .select("id, role, is_active")
+    .eq("email", user.email?.toLowerCase() || "")
     .single();
 
-  if (!appUser || normalizeRole(appUser.role) !== "fns") {
+  if (!appUser?.is_active || normalizeRole(appUser.role) !== "fns") {
     redirect("/dashboard");
   }
 

@@ -20,7 +20,15 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/ui/accordion";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/ui/select";
 import { useToast } from "@/lib/use-toast";
+import { normalizeRole } from "@/lib/normalize-role";
 import { Plus, Edit, Loader2, Building2, Store, Tags, Layers, Power, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +77,15 @@ interface ScCabinet {
   name: string;
   is_active: boolean;
   created_at: string;
+  user_id: string | null;
+}
+
+interface ScAccount {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  is_active: boolean;
 }
 
 type DropdownType = "companies" | "vendors" | "categories" | "subcategories" | "process_types" | "sc_cabinets";
@@ -84,6 +101,7 @@ export function FnSDropdowns() {
   const [categorySubCategories, setCategorySubCategories] = useState<CategorySubCategory[]>([]);
   const [processTypes, setProcessTypes] = useState<ProcessType[]>([]);
   const [scCabinets, setScCabinets] = useState<ScCabinet[]>([]);
+  const [scAccounts, setScAccounts] = useState<ScAccount[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [addDialog, setAddDialog] = useState<{
@@ -106,7 +124,7 @@ export function FnSDropdowns() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [companiesRes, vendorsRes, categoriesRes, subCategoriesRes, categorySubCategoriesRes, processTypesRes, scCabinetsRes] =
+      const [companiesRes, vendorsRes, categoriesRes, subCategoriesRes, categorySubCategoriesRes, processTypesRes, scCabinetsRes, usersRes] =
         await Promise.all([
           supabase.from("companies").select("*").order("name"),
           supabase.from("vendors").select("*").order("name"),
@@ -115,6 +133,7 @@ export function FnSDropdowns() {
           supabase.from("category_subcategories").select("*"),
           supabase.from("process_types").select("*").order("name"),
           supabase.from("sc_cabinets").select("*").order("name"),
+          supabase.from("users").select("id, name, email, role, is_active").order("name"),
         ]);
 
       setCompanies(companiesRes.data || []);
@@ -124,6 +143,9 @@ export function FnSDropdowns() {
       setCategorySubCategories(categorySubCategoriesRes.data || []);
       setProcessTypes(processTypesRes.data || []);
       setScCabinets(scCabinetsRes.data || []);
+      setScAccounts(
+        (usersRes.data || []).filter((user) => normalizeRole(user.role) === "sc")
+      );
     } catch {
       toast({
         title: "Error",
@@ -288,6 +310,35 @@ export function FnSDropdowns() {
       toast({ title: "Error", description: err.message || "Failed to delete", variant: "destructive" });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleAssignScAccount = async (cabinetId: string, nextUserId: string | null) => {
+    try {
+      const { error } = await supabase
+        .from("sc_cabinets")
+        .update({ user_id: nextUserId })
+        .eq("id", cabinetId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Mapping updated",
+        description: nextUserId
+          ? "The SC/Cabinet is now linked to the selected SC account."
+          : "The SC/Cabinet has been unlinked from any SC account.",
+      });
+
+      fetchData();
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description:
+          err.code === "23505"
+            ? "That SC account is already linked to another SC/Cabinet."
+            : err.message || "Failed to update SC mapping",
+        variant: "destructive",
+      });
     }
   };
 
@@ -502,16 +553,51 @@ export function FnSDropdowns() {
                 <Plus className="mr-2 h-4 w-4" />
                 Add SC/Cabinet
               </Button>
-              <div className="flex flex-wrap gap-2">
+              <div className="space-y-3">
                 {scCabinets.map((sc) => (
-                  <ItemRow
-                    key={sc.id}
-                    item={sc}
-                    type="sc_cabinets"
-                    onEdit={() => openEditDialog("sc_cabinets", sc)}
-                    onToggle={() => handleToggleActive("sc_cabinets", sc)}
-                    onDelete={() => handleDelete("sc_cabinets", sc)}
-                  />
+                  <div key={sc.id} className={cn("rounded-lg border p-3", !sc.is_active && "opacity-60 bg-muted/30")}>
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={cn("font-medium", !sc.is_active && "line-through")}>{sc.name}</span>
+                        <Button variant="ghost" size="sm" onClick={() => openEditDialog("sc_cabinets", sc)} className="h-7 px-2">
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleToggleActive("sc_cabinets", sc)}
+                          className={cn("h-7 px-2", sc.is_active ? "text-amber-500" : "text-green-500")}
+                          title={sc.is_active ? "Deactivate" : "Activate"}
+                        >
+                          <Power className="h-3 w-3" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete("sc_cabinets", sc)} className="h-7 px-2 text-destructive">
+                          <span className="text-xs">x</span>
+                        </Button>
+                      </div>
+                      <div className="grid gap-2 lg:min-w-[320px]">
+                        <Label className="text-xs text-muted-foreground">Linked SC Account</Label>
+                        <Select
+                          value={sc.user_id || "__unassigned__"}
+                          onValueChange={(value) =>
+                            handleAssignScAccount(sc.id, value === "__unassigned__" ? null : value)
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose an SC account" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                            {scAccounts.map((account) => (
+                              <SelectItem key={account.id} value={account.id}>
+                                {account.name} ({account.email}){account.is_active ? "" : " [Inactive]"}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
