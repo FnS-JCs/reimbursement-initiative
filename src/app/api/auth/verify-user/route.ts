@@ -55,7 +55,6 @@ export async function POST(request: NextRequest) {
       .from("users")
       .update({
         auth_user_id: user.id,
-        google_id: user.id,
       })
       .eq("id", appUser.id)
       .is("auth_user_id", null);
