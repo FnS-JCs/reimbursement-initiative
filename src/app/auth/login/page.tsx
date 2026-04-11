@@ -80,7 +80,7 @@ function LoginPageContent() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">FnS Reimbursement</CardTitle>
+          <CardTitle className="text-2xl">Reimbursement Portal</CardTitle>
           <CardDescription>
             Sign in with your whitelisted Google account
           </CardDescription>
