@@ -17,7 +17,7 @@ export function BillDashboard({ userId, userRole }: BillDashboardProps) {
   const { toast } = useToast();
   const [refreshKey, setRefreshKey] = useState(0);
   const normalizedRole = normalizeRole(userRole);
-  const isSC = normalizedRole === "sc" || normalizedRole === "fns";
+  const isSC = normalizedRole === "sc";
 
   const handleBillSubmitted = () => {
     setRefreshKey((k) => k + 1);

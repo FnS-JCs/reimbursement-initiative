@@ -5,7 +5,6 @@ import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
-import { Switch } from "@/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
 import {
   Select,
@@ -47,7 +46,6 @@ interface DropdownData {
 export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   const supabase = createClient();
   const normalizedRole = normalizeRole(userRole);
-  const isSC = normalizedRole === "sc" || normalizedRole === "fns";
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -74,12 +72,11 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   const [amount, setAmount] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
-  const [isGeneralBill, setIsGeneralBill] = useState(false);
 
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
 
   const isCompanyCategory = isCompanyCategoryById(dropdownData.categories, categoryId);
-  const showCompanyFields = !isGeneralBill && isCompanyCategory;
+  const showCompanyFields = isCompanyCategory;
 
   const fetchDropdownData = useCallback(async () => {
     const [
@@ -134,11 +131,11 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   }, [categoryId, dropdownData]);
 
   useEffect(() => {
-    if (isGeneralBill) {
+    if (!showCompanyFields) {
       setCompanyId("");
       setProcessTypeId("");
     }
-  }, [isGeneralBill]);
+  }, [showCompanyFields]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -209,6 +206,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       const selectedProcessType = dropdownData.processTypes.find(p => p.id === processTypeId);
       const billData = {
         user_id: userId,
+        submitted_by_role: normalizedRole,
         vendor_id: vendorId,
         bill_number: billNumber,
         company_id: showCompanyFields ? companyId : null,
@@ -236,7 +234,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       setAmount("");
       setFile(null);
       setFilePreview(null);
-      setIsGeneralBill(false);
       onSuccess();
     } catch (err: any) {
       setError(err.message || "Failed to submit bill");
@@ -259,18 +256,6 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
-          )}
-
-          {isSC && (
-            <div className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/50">
-              <Switch id="is-general" checked={isGeneralBill} onCheckedChange={setIsGeneralBill} />
-              <Label htmlFor="is-general" className="text-sm font-medium cursor-pointer">
-                General / Non-Company Bill
-              </Label>
-              <span className="text-xs text-muted-foreground ml-auto">
-                {isGeneralBill ? "Company, SC, and Process Type will be hidden" : "Hides company-related fields"}
-              </span>
-            </div>
           )}
 
           <div className="grid gap-4 md:grid-cols-2">

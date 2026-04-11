@@ -75,6 +75,7 @@ export interface Bill {
   id: string;
   user_id: string;
   sc_id: string | null;
+  submitted_by_role?: Role | null;
   vendor_id: string;
   company_id: string | null;
   category_id: string;

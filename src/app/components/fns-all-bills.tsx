@@ -44,7 +44,11 @@ interface BillWithRelations extends Bill {
   reimbursement_cycles?: { name: string };
 }
 
-export function FnSAllBills() {
+interface FnSAllBillsProps {
+  refreshKey?: number;
+}
+
+export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   const supabase = createClient();
   const { toast } = useToast();
 
@@ -126,7 +130,7 @@ export function FnSAllBills() {
     const [companiesRes, categoriesRes, scUsersRes, cyclesRes] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
-      supabase.from("users").select("id, name").eq("role", "sc").order("name"),
+      supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
       supabase.from("reimbursement_cycles").select("id, name").order("created_at", { ascending: false }),
     ]);
 
@@ -140,7 +144,7 @@ export function FnSAllBills() {
 
   useEffect(() => {
     fetchBills();
-  }, [fetchBills]);
+  }, [fetchBills, refreshKey]);
 
   useEffect(() => {
     fetchDropdownData();
@@ -380,7 +384,9 @@ export function FnSAllBills() {
                   return (
                     <tr key={bill.id} className="border-b last:border-0">
                       <td className="px-4 py-3">{formatDate(bill.date)}</td>
-                      <td className="px-4 py-3">{bill.users?.name}</td>
+                      <td className="px-4 py-3">
+                        {bill.submitted_by_role === "fns" ? "FnS" : bill.users?.name}
+                      </td>
                       <td className="px-4 py-3">
                         <div>{bill.vendors?.name}</div>
                         <div className="text-xs text-muted-foreground">

@@ -72,7 +72,7 @@ export function FnSExport() {
     const [companiesRes, categoriesRes, scUsersRes, cyclesRes] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
-      supabase.from("users").select("id, name").eq("role", "sc").order("name"),
+      supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
       supabase.from("reimbursement_cycles").select("id, name").order("created_at", { ascending: false }),
     ]);
 
@@ -183,7 +183,7 @@ export function FnSExport() {
           row["Amount (INR)"] = bill.amount;
         }
         if (selectedColumns.includes("submitted_by")) {
-          row["Submitted By"] = bill.users?.name || "";
+          row["Submitted By"] = bill.submitted_by_role === "fns" ? "FnS" : (bill.users?.name || "");
         }
         if (selectedColumns.includes("process_type")) {
           row["Process Type"] = bill.process_type || "";

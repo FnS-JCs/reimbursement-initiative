@@ -410,7 +410,7 @@ function BillCard({ bill, userId, isSC, onUpdateStatus, onReject }: BillCardProp
             </div>
 
             <p className="text-sm text-muted-foreground">
-              Submitted by: {bill.users?.name || "Unknown"}
+              Submitted by: {bill.submitted_by_role === "fns" ? "FnS" : (bill.users?.name || "Unknown")}
             </p>
             {bill.sc_cabinets?.name && (
               <p className="text-sm text-muted-foreground">

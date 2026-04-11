@@ -33,6 +33,7 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
   };
 
   const getActiveTab = () => {
+    if (pathname.includes("/submit")) return "submit";
     if (pathname.includes("/export")) return "export";
     if (pathname.includes("/users")) return "users";
     if (pathname.includes("/cycles")) return "cycles";
@@ -60,6 +61,9 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
                 <Link href="/fns">
                   <TabsTrigger value="bills">All Bills</TabsTrigger>
                 </Link>
+                <Link href="/fns/submit">
+                  <TabsTrigger value="submit">Add Bill</TabsTrigger>
+                </Link>
                 <Link href="/fns/export">
                   <TabsTrigger value="export">Export</TabsTrigger>
                 </Link>
@@ -84,6 +88,9 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
               <DropdownMenuContent align="start">
                 <Link href="/fns">
                   <DropdownMenuItem>All Bills</DropdownMenuItem>
+                </Link>
+                <Link href="/fns/submit">
+                  <DropdownMenuItem>Add Bill</DropdownMenuItem>
                 </Link>
                 <Link href="/fns/export">
                   <DropdownMenuItem>Export</DropdownMenuItem>
