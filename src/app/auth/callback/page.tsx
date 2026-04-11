@@ -5,6 +5,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/supabase/client";
 import { Loader2 } from "lucide-react";
 
+function redirectToLogin(
+  router: ReturnType<typeof useRouter>,
+  error: string,
+  message: string
+) {
+  const params = new URLSearchParams();
+  params.set("error", error);
+  params.set("message", message);
+  router.replace(`/auth/login?${params.toString()}`);
+}
+
 function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -16,13 +27,12 @@ function CallbackContent() {
     const errorDescription = searchParams.get("error_description");
 
     if (errorCode) {
-      const message = encodeURIComponent(errorDescription || "OAuth login failed");
-      router.replace(`/auth/login?error=${errorCode}&message=${message}`);
+      redirectToLogin(router, errorCode, errorDescription || "OAuth login failed");
       return;
     }
 
     if (!code) {
-      router.replace("/auth/login?error=missing_code&message=No+auth+code+received");
+      redirectToLogin(router, "missing_code", "No auth code received");
       return;
     }
 
@@ -34,9 +44,7 @@ function CallbackContent() {
       const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
       if (exchangeError) {
-        router.replace(
-          `/auth/login?error=oauth_exchange_failed&message=${encodeURIComponent(exchangeError.message)}`
-        );
+        redirectToLogin(router, "oauth_exchange_failed", exchangeError.message);
         return;
       }
 
@@ -46,7 +54,7 @@ function CallbackContent() {
 
       if (!user) {
         setStatus("No user session found");
-        router.replace("/auth/login?error=no_session&message=No+authenticated+session");
+        redirectToLogin(router, "no_session", "No authenticated session");
         return;
       }
 
@@ -61,8 +69,7 @@ function CallbackContent() {
       const data = await res.json();
 
       if (!res.ok) {
-        const message = encodeURIComponent(data.error || "Access denied");
-        router.replace(`/auth/login?error=access_denied&message=${message}`);
+        redirectToLogin(router, "access_denied", data.error || "Access denied");
         return;
       }
 

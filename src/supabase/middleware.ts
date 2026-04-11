@@ -47,6 +47,7 @@ export async function updateSession(request: NextRequest) {
   if (!user && !isAuthPage && !isPublicPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/login';
+    url.search = '';
     return NextResponse.redirect(url);
   }
 
@@ -61,12 +62,14 @@ export async function updateSession(request: NextRequest) {
       await supabase.auth.signOut();
       const url = request.nextUrl.clone();
       url.pathname = '/auth/login';
+      url.search = '';
       url.searchParams.set('error', 'access_denied');
       return NextResponse.redirect(url);
     }
 
     if (isAuthPage && !isAuthCallback) {
       const url = request.nextUrl.clone();
+      url.search = '';
       if (normalizeRole(appUser.role) === 'fns') {
         url.pathname = '/fns';
       } else {

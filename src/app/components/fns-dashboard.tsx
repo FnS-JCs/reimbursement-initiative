@@ -29,7 +29,7 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push("/auth/login");
+    window.location.href = "/auth/login";
   };
 
   const getActiveTab = () => {
