@@ -171,10 +171,10 @@ export function FnSUsers() {
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto bg-card rounded-lg">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b bg-muted/50">
+                  <tr className="border-b bg-muted/50 text-foreground">
                     <th className="px-4 py-3 text-left font-medium">Name</th>
                     <th className="px-4 py-3 text-left font-medium">Email</th>
                     <th className="px-4 py-3 text-left font-medium">Roll No</th>
@@ -183,9 +183,9 @@ export function FnSUsers() {
                     <th className="px-4 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="text-foreground">
                   {users.map((user) => (
-                    <tr key={user.id} className="border-b last:border-0">
+                    <tr key={user.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           {normalizeRole(user.role) === "fns" ? (
@@ -193,7 +193,7 @@ export function FnSUsers() {
                           ) : (
                             <UserCircle className="h-4 w-4 text-muted-foreground" />
                           )}
-                          {user.name}
+                          <span className="font-medium">{user.name}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3">{user.email}</td>
@@ -210,12 +210,18 @@ export function FnSUsers() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => openEditDialog(user)}>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-8 w-8 p-0"
+                            onClick={() => openEditDialog(user)}
+                          >
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="h-8 w-8 p-0"
                             onClick={() => setStatusDialog({ open: true, user })}
                           >
                             <Power

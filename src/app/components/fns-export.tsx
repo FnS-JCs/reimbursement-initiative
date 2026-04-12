@@ -17,7 +17,7 @@ import { Bill, Role, BillFilters } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
 import { Download, Loader2, FileText } from "lucide-react";
-import * as XLSX from "xlsx";
+import XLSX from "xlsx-js-style";
 
 interface BillWithRelations extends Bill {
   users?: { name: string; email: string; role: Role };
@@ -37,10 +37,12 @@ const EXPORT_COLUMNS = [
   { id: "subcategory", label: "Sub-Category", default: true },
   { id: "sc_name", label: "SC Name", default: true },
   { id: "company", label: "Company Name", default: true },
+  { id: "process_type", label: "Process Type", default: true },
   { id: "vendor", label: "Vendor", default: true },
   { id: "amount", label: "Amount (INR)", default: true },
+  { id: "file_url", label: "Drive Link", default: true },
   { id: "submitted_by", label: "Submitted By", default: false },
-  { id: "process_type", label: "Process Type", default: false },
+  { id: "status", label: "Status", default: false },
 ];
 
 export function FnSExport() {
@@ -51,7 +53,10 @@ export function FnSExport() {
   const [exporting, setExporting] = useState(false);
   const [bills, setBills] = useState<BillWithRelations[]>([]);
 
-  const [filters, setFilters] = useState<BillFilters>({});
+  const [filters, setFilters] = useState<BillFilters>({
+    status: "reimbursed",
+  });
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [selectedColumns, setSelectedColumns] = useState<string[]>(
     EXPORT_COLUMNS.filter((c) => c.default).map((c) => c.id)
   );
@@ -98,8 +103,11 @@ export function FnSExport() {
           categories:category_id(name),
           subcategories:subcategory_id(name)
         `)
-        .eq("status", "reimbursed")
         .order("date", { ascending: true });
+
+      if (filters.status && filters.status !== "all") {
+        query = query.eq("status", filters.status);
+      }
 
       if (filters.sc_id) {
         query = query.eq("sc_id", filters.sc_id);
@@ -117,6 +125,14 @@ export function FnSExport() {
         query = query.eq("cycle_id", filters.cycle_id);
       }
 
+      if (selectedMonth !== "all") {
+        const [year, month] = selectedMonth.split("-");
+        const startDate = `${year}-${month}-01`;
+        const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+        const endDate = `${year}-${month}-${lastDay}`;
+        query = query.gte("date", startDate).lte("date", endDate);
+      }
+
       const { data, error } = await query;
 
       if (error) throw error;
@@ -130,7 +146,7 @@ export function FnSExport() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, filters, toast]);
+  }, [supabase, filters, selectedMonth, toast]);
 
   useEffect(() => {
     fetchDropdownData();
@@ -152,47 +168,84 @@ export function FnSExport() {
     setExporting(true);
 
     try {
-      const exportData = bills.map((bill, index) => {
-        const row: Record<string, any> = {};
+      const headerOrder = [
+        "Serial No.", "Date", "SC Name", "Category", "Sub-Category", 
+        "Bill Number", "Drive Link", "Company Name", "Process Type", 
+        "Vendor", "Amount (INR)", "Submitted By", "Status"
+      ];
 
-        if (selectedColumns.includes("serial")) {
-          row["Serial No."] = index + 1;
+      const headerStyle = {
+        font: { name: "Trebuchet MS", sz: 10, color: { rgb: "FFFFFF" }, bold: true },
+        fill: { fgColor: { rgb: "1B3055" } },
+        alignment: { vertical: "middle", horizontal: "center" },
+        border: {
+          top: { style: "thin", color: { rgb: "000000" } },
+          bottom: { style: "thin", color: { rgb: "000000" } },
+          left: { style: "thin", color: { rgb: "000000" } },
+          right: { style: "thin", color: { rgb: "000000" } }
         }
-        if (selectedColumns.includes("date")) {
-          row["Date"] = new Date(bill.date).toLocaleDateString("en-IN");
-        }
-        if (selectedColumns.includes("bill_number")) {
-          row["Bill Number"] = bill.bill_number;
-        }
-        if (selectedColumns.includes("category")) {
-          row["Category"] = bill.categories?.name || "";
-        }
-        if (selectedColumns.includes("subcategory")) {
-          row["Sub-Category"] = bill.subcategories?.name || "";
-        }
-        if (selectedColumns.includes("sc_name")) {
-          row["SC Name"] = bill.sc_cabinets?.name || "";
-        }
-        if (selectedColumns.includes("company")) {
-          row["Company Name"] = bill.companies?.name || "";
-        }
-        if (selectedColumns.includes("vendor")) {
-          row["Vendor"] = bill.vendors?.name || "";
-        }
-        if (selectedColumns.includes("amount")) {
-          row["Amount (INR)"] = bill.amount;
-        }
-        if (selectedColumns.includes("submitted_by")) {
-          row["Submitted By"] = bill.submitted_by_role === "fns" ? "FnS" : (bill.users?.name || "");
-        }
-        if (selectedColumns.includes("process_type")) {
-          row["Process Type"] = bill.process_type || "";
-        }
+      };
 
-        return row;
+      const dataStyle = {
+        font: { name: "Trebuchet MS", sz: 9, color: { rgb: "000000" } },
+        fill: { fgColor: { rgb: "FFFFFF" } },
+        alignment: { vertical: "middle", horizontal: "center" },
+        border: {
+          top: { style: "thin", color: { rgb: "000000" } },
+          bottom: { style: "thin", color: { rgb: "000000" } },
+          left: { style: "thin", color: { rgb: "000000" } },
+          right: { style: "thin", color: { rgb: "000000" } }
+        }
+      };
+
+      // Prepare data for aoa_to_sheet
+      const rows: any[][] = [headerOrder.map(h => ({ v: h, s: headerStyle }))];
+
+      bills.forEach((bill, index) => {
+        const row = [
+          { v: index + 1, s: dataStyle },
+          { v: new Date(bill.date), s: { ...dataStyle, z: "dd/mm/yyyy" } },
+          { v: bill.sc_cabinets?.name || "-", s: dataStyle },
+          { v: bill.categories?.name || "", s: dataStyle },
+          { v: bill.subcategories?.name || "", s: dataStyle },
+          { v: bill.bill_number, s: dataStyle },
+          { 
+            v: bill.file_url ? "Link" : "No link", 
+            s: bill.file_url ? { ...dataStyle, font: { ...dataStyle.font, color: { rgb: "0563C1" }, underline: true } } : dataStyle,
+            l: bill.file_url ? { Target: bill.file_url, Tooltip: "Open link" } : undefined
+          },
+          { v: bill.companies?.name || "General", s: dataStyle },
+          { v: bill.process_type || "-", s: dataStyle },
+          { v: bill.vendors?.name || "", s: dataStyle },
+          { v: bill.amount, s: { ...dataStyle, z: '"₹"#,##0.00' } },
+          { v: bill.submitted_by_role === "fns" ? "FnS" : (bill.users?.name || ""), s: dataStyle },
+          { v: bill.status, s: dataStyle }
+        ];
+        rows.push(row);
       });
 
-      const ws = XLSX.utils.json_to_sheet(exportData);
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+
+      // Set column widths
+      ws["!cols"] = [
+        { wch: 10 }, // Serial
+        { wch: 12 }, // Date
+        { wch: 20 }, // SC Name
+        { wch: 20 }, // Category
+        { wch: 20 }, // Sub-Category
+        { wch: 15 }, // Bill Number
+        { wch: 10 }, // Drive Link
+        { wch: 20 }, // Company Name
+        { wch: 20 }, // Process Type
+        { wch: 20 }, // Vendor
+        { wch: 15 }, // Amount
+        { wch: 20 }, // Submitted By
+        { wch: 12 }  // Status
+      ];
+
+      // Hide gridlines
+      ws["!views"] = [{ showGridLines: false }];
+
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Bills");
 
@@ -204,6 +257,7 @@ export function FnSExport() {
         description: `Exported ${bills.length} bills to ${fileName}`,
       });
     } catch (err) {
+      console.error("Export error:", err);
       toast({
         title: "Export failed",
         description: "Failed to export bills to Excel",
@@ -216,12 +270,21 @@ export function FnSExport() {
 
   const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
 
+  // Generate last 12 months for the month filter
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    const value = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+    return { label, value };
+  });
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Export Bills</h1>
         <p className="text-muted-foreground">
-          Export reimbursed bills to Excel format
+          Export bills to Excel format with custom filters
         </p>
       </div>
 
@@ -231,7 +294,7 @@ export function FnSExport() {
           <CardDescription>Select criteria for export</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4">
             <div className="space-y-2">
               <Label>SC</Label>
               <Select
@@ -241,7 +304,7 @@ export function FnSExport() {
                 }
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="All SCs" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All SCs</SelectItem>
@@ -263,7 +326,7 @@ export function FnSExport() {
                 }
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="All Companies" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Companies</SelectItem>
@@ -285,7 +348,7 @@ export function FnSExport() {
                 }
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
@@ -299,6 +362,44 @@ export function FnSExport() {
             </div>
 
             <div className="space-y-2">
+              <Label>Month</Label>
+              <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Months" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  {monthOptions.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={filters.status || "all"}
+                onValueChange={(v) =>
+                  setFilters({ ...filters, status: v === "all" ? undefined : v as any })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="physical_received">Physical Received</SelectItem>
+                  <SelectItem value="reimbursed">Reimbursed</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
               <Label>Cycle</Label>
               <Select
                 value={filters.cycle_id || "all"}
@@ -307,7 +408,7 @@ export function FnSExport() {
                 }
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="All Cycles" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Cycles</SelectItem>

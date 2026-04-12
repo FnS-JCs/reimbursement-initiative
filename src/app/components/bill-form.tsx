@@ -190,6 +190,20 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
     }
 
     try {
+      // Check for duplicate bill (same vendor and bill number, case-insensitive)
+      const { data: existingBill, error: checkError } = await supabase
+        .from("bills")
+        .select("id")
+        .eq("vendor_id", vendorId)
+        .ilike("bill_number", billNumber.trim())
+        .maybeSingle();
+
+      if (checkError) throw new Error(`Error checking for duplicate bills: ${checkError.message}`);
+      
+      if (existingBill) {
+        throw new Error(`A bill with number "${billNumber}" from this vendor already exists in the system.`);
+      }
+
       let fileUrl: string | null = null;
       if (file) {
         setUploading(true);

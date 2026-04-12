@@ -363,10 +363,10 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
             </CardContent>
           </Card>
         ) : (
-          <div className="rounded-lg border bg-white overflow-x-auto">
+          <div className="rounded-lg border bg-card overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b bg-muted/50">
+                <tr className="border-b bg-muted/50 text-foreground">
                   <th className="px-4 py-3 text-left font-medium">Date</th>
                   <th className="px-4 py-3 text-left font-medium">Submitted By</th>
                   <th className="px-4 py-3 text-left font-medium">Vendor</th>
@@ -378,17 +378,17 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                   <th className="px-4 py-3 text-center font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="text-foreground">
                 {bills.map((bill) => {
                   const status = statusConfig[bill.status];
                   return (
-                    <tr key={bill.id} className="border-b last:border-0">
+                    <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
                       <td className="px-4 py-3">{formatDate(bill.date)}</td>
                       <td className="px-4 py-3">
                         {bill.submitted_by_role === "fns" ? "FnS" : bill.users?.name}
                       </td>
                       <td className="px-4 py-3">
-                        <div>{bill.vendors?.name}</div>
+                        <div className="font-medium text-primary">{bill.vendors?.name}</div>
                         <div className="text-xs text-muted-foreground">
                           #{bill.bill_number}
                         </div>
@@ -397,13 +397,13 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                         {bill.companies?.name || <Badge variant="secondary">General</Badge>}
                       </td>
                       <td className="px-4 py-3">
-                        <div>{bill.categories?.name}</div>
+                        <div className="text-primary">{bill.categories?.name}</div>
                         <div className="text-xs text-muted-foreground">
                           {bill.subcategories?.name}
                         </div>
                       </td>
                       <td className="px-4 py-3">{bill.sc_cabinets?.name || "-"}</td>
-                      <td className="px-4 py-3 text-right font-medium">
+                      <td className="px-4 py-3 text-right font-medium text-primary">
                         {formatCurrency(bill.amount)}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -424,6 +424,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="h-8 w-8 p-0"
                             onClick={() => handleEdit(bill)}
                           >
                             <Edit className="h-4 w-4" />
@@ -431,13 +432,14 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="h-8 w-8 p-0"
                             onClick={() => handleDelete(bill.id)}
                           >
                             <XCircle className="h-4 w-4 text-destructive" />
                           </Button>
                           {bill.file_url && (
                             <a href={bill.file_url} target="_blank" rel="noopener noreferrer">
-                              <Button variant="ghost" size="sm">
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                                 <ExternalLink className="h-4 w-4" />
                               </Button>
                             </a>
