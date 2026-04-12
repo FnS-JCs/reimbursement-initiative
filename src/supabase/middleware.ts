@@ -4,7 +4,12 @@ import { normalizeRole } from '@/lib/normalize-role';
 
 export async function updateSession(request: NextRequest) {
   const isAuthCallback = request.nextUrl.pathname === '/auth/callback';
-  if (isAuthCallback) {
+  const isGoogleDriveCallback = request.nextUrl.pathname === '/auth/google-drive-callback';
+  const isGoogleDriveAuthPath = request.nextUrl.pathname.startsWith('/api/auth/google-drive');
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api/');
+  
+  // Skip middleware for OAuth flows and API routes
+  if (isAuthCallback || isGoogleDriveCallback || isGoogleDriveAuthPath || isApiRoute) {
     return NextResponse.next({
       request,
     });

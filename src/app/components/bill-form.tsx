@@ -168,7 +168,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(false);
+    setLoading(true);
     setError(null);
 
     if (!billDate || !vendorId || !billNumber || !categoryId || !subCategoryId || !scCabinetId || !amount) {
@@ -193,14 +193,32 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       let fileUrl: string | null = null;
       if (file) {
         setUploading(true);
-        const fileExt = file.name.split(".").pop();
-        const fileName = `${userId}/${new Date().getFullYear()}/${Date.now()}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage
-          .from("bills")
-          .upload(fileName, file, { cacheControl: "3600", upsert: false });
-        if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
-        const { data: urlData } = supabase.storage.from("bills").getPublicUrl(fileName);
-        fileUrl = urlData.publicUrl;
+        
+        // Get SC name and vendor name for filename formatting
+        const scName = dropdownData.scCabinets.find(sc => sc.id === scCabinetId)?.name || "Unknown";
+        const vendorName = dropdownData.vendors.find(v => v.id === vendorId)?.name || "Unknown";
+        
+        // Prepare form data for upload
+        const uploadFormData = new FormData();
+        uploadFormData.append("file", file);
+        uploadFormData.append("scName", scName);
+        uploadFormData.append("date", billDate);
+        uploadFormData.append("vendorName", vendorName);
+        uploadFormData.append("billNumber", billNumber);
+        
+        // Upload to Google Drive via API endpoint
+        const uploadResponse = await fetch("/api/bills/upload", {
+          method: "POST",
+          body: uploadFormData,
+        });
+        
+        if (!uploadResponse.ok) {
+          const errorData = await uploadResponse.json();
+          throw new Error(errorData.error || "Upload failed");
+        }
+        
+        const uploadData = await uploadResponse.json();
+        fileUrl = uploadData.fileUrl;
       }
 
       const selectedProcessType = dropdownData.processTypes.find(p => p.id === processTypeId);
