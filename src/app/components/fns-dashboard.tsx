@@ -1,10 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,8 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
 import { User } from "@/types";
-import { LogOut, Menu, User as UserIcon, FileSpreadsheet, Users, RefreshCw, List, ChevronDown } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { LogOut, User as UserIcon, ChevronDown } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import Image from "next/image";
 
@@ -25,22 +21,11 @@ interface FnSDashboardProps {
 }
 
 export function FnSDashboard({ children, user }: FnSDashboardProps) {
-  const router = useRouter();
   const supabase = createClient();
-  const pathname = usePathname();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     window.location.href = "/auth/login";
-  };
-
-  const getActiveTab = () => {
-    if (pathname.includes("/submit")) return "submit";
-    if (pathname.includes("/export")) return "export";
-    if (pathname.includes("/users")) return "users";
-    if (pathname.includes("/cycles")) return "cycles";
-    if (pathname.includes("/dropdowns")) return "dropdowns";
-    return "bills";
   };
 
   return (
@@ -62,57 +47,6 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
                 <span className="text-xs text-blue-100">Finance & Strategy</span>
               </div>
             </div>
-
-            <Tabs value={getActiveTab()} className="hidden md:block">
-              <TabsList className="bg-white/10 text-white">
-                <Link href="/fns">
-                  <TabsTrigger value="bills" className="data-[state=active]:bg-white data-[state=active]:text-primary text-white hover:text-white/80 transition-colors">All Bills</TabsTrigger>
-                </Link>
-                <Link href="/fns/submit">
-                  <TabsTrigger value="submit" className="data-[state=active]:bg-white data-[state=active]:text-primary text-white hover:text-white/80 transition-colors">Add Bill</TabsTrigger>
-                </Link>
-                <Link href="/fns/export">
-                  <TabsTrigger value="export" className="data-[state=active]:bg-white data-[state=active]:text-primary text-white hover:text-white/80 transition-colors">Export</TabsTrigger>
-                </Link>
-                <Link href="/fns/users">
-                  <TabsTrigger value="users" className="data-[state=active]:bg-white data-[state=active]:text-primary text-white hover:text-white/80 transition-colors">Users</TabsTrigger>
-                </Link>
-                <Link href="/fns/cycles">
-                  <TabsTrigger value="cycles" className="data-[state=active]:bg-white data-[state=active]:text-primary text-white hover:text-white/80 transition-colors">Cycles</TabsTrigger>
-                </Link>
-                <Link href="/fns/dropdowns">
-                  <TabsTrigger value="dropdowns" className="data-[state=active]:bg-white data-[state=active]:text-primary text-white hover:text-white/80 transition-colors">Dropdowns</TabsTrigger>
-                </Link>
-              </TabsList>
-            </Tabs>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild className="md:hidden">
-                <Button variant="ghost" size="sm" className="text-white hover:bg-white/20">
-                  <Menu className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <Link href="/fns">
-                  <DropdownMenuItem>All Bills</DropdownMenuItem>
-                </Link>
-                <Link href="/fns/submit">
-                  <DropdownMenuItem>Add Bill</DropdownMenuItem>
-                </Link>
-                <Link href="/fns/export">
-                  <DropdownMenuItem>Export</DropdownMenuItem>
-                </Link>
-                <Link href="/fns/users">
-                  <DropdownMenuItem>Users</DropdownMenuItem>
-                </Link>
-                <Link href="/fns/cycles">
-                  <DropdownMenuItem>Cycles</DropdownMenuItem>
-                </Link>
-                <Link href="/fns/dropdowns">
-                  <DropdownMenuItem>Dropdowns</DropdownMenuItem>
-                </Link>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
 
           <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/supabase/server";
-import { FnSAllBills } from "@/app/components/fns-all-bills";
+import { FnSPortal } from "@/app/components/fns-portal";
 import { normalizeRole } from "@/lib/normalize-role";
 
 export default async function FnSHomePage() {
@@ -21,5 +21,5 @@ export default async function FnSHomePage() {
     redirect("/dashboard");
   }
 
-  return <FnSAllBills />;
+  return <FnSPortal userId={appUser.id} userRole={appUser.role} />;
 }
