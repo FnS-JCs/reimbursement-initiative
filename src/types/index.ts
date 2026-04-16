@@ -122,5 +122,4 @@ export interface BillFilters {
   cycle_id?: string;
   date_from?: string;
   date_to?: string;
-  show_historical?: boolean;
 }

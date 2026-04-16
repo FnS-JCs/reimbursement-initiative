@@ -20,7 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/dialog";
-import { Switch } from "@/ui/switch";
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
 import { Bill, Role, BillFilters } from "@/types";
@@ -59,7 +58,6 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   const [bills, setBills] = useState<BillWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showHistorical, setShowHistorical] = useState(false);
 
   const [filters, setFilters] = useState<BillFilters>({
     submitted_by_filter: "all",
@@ -76,10 +74,12 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     companies: { id: string; name: string }[];
     categories: { id: string; name: string }[];
     scUsers: { id: string; name: string }[];
+    cycles: { id: string; name: string }[];
   }>({
     companies: [],
     categories: [],
     scUsers: [],
+    cycles: [],
   });
 
   const fetchBills = useCallback(async () => {
@@ -124,6 +124,18 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         query = query.eq("category_id", filters.category_id);
       }
 
+      if (filters.cycle_id && filters.cycle_id !== "all") {
+        query = query.eq("cycle_id", filters.cycle_id);
+      }
+
+      if (filters.date_from) {
+        query = query.gte("date", filters.date_from);
+      }
+
+      if (filters.date_to) {
+        query = query.lte("date", filters.date_to);
+      }
+
       const { data, error } = await query;
 
       if (error) throw error;
@@ -140,16 +152,18 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   }, [supabase, userId, isSC, filters, toast]);
 
   const fetchDropdownData = useCallback(async () => {
-    const [companiesRes, categoriesRes, scUsersRes] = await Promise.all([
+    const [companiesRes, categoriesRes, scUsersRes, cyclesRes] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
       supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
+      supabase.from("reimbursement_cycles").select("id, name").order("created_at", { ascending: false }),
     ]);
 
     setDropdownData({
       companies: companiesRes.data || [],
       categories: categoriesRes.data || [],
       scUsers: scUsersRes.data || [],
+      cycles: cyclesRes.data || [],
     });
   }, [supabase]);
 
@@ -228,18 +242,10 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                 <CardTitle className="text-lg">Filters</CardTitle>
                 <CardDescription>Filter bills by various criteria</CardDescription>
               </div>
-              <div className="flex items-center gap-2">
-                <Label htmlFor="historical" className="text-sm">View Historical</Label>
-                <Switch
-                  id="historical"
-                  checked={showHistorical}
-                  onCheckedChange={setShowHistorical}
-                />
-              </div>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-5">
               <div className="space-y-2">
                 <Label>Submitted By</Label>
                 <Select
@@ -252,11 +258,49 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="jcs">JCs</SelectItem>
-                    <SelectItem value="myself">Myself</SelectItem>
+                    <SelectItem value="all">All Bills</SelectItem>
+                    <SelectItem value="myself">My Bills</SelectItem>
+                    <SelectItem value="jcs">JC Bills</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Cycle</Label>
+                <Select
+                  value={filters.cycle_id || "all"}
+                  onValueChange={(v) =>
+                    setFilters({ ...filters, cycle_id: v === "all" ? undefined : v })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Cycles" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Cycles</SelectItem>
+                    {dropdownData.cycles.map((cycle) => (
+                      <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>From Date</Label>
+                <Input
+                  type="date"
+                  value={filters.date_from || ""}
+                  onChange={(e) => setFilters({ ...filters, date_from: e.target.value || undefined })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>To Date</Label>
+                <Input
+                  type="date"
+                  value={filters.date_to || ""}
+                  onChange={(e) => setFilters({ ...filters, date_to: e.target.value || undefined })}
+                />
               </div>
 
               <div className="space-y-2">
@@ -264,62 +308,18 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                 <Select
                   value={filters.status || "all"}
                   onValueChange={(v) =>
-                    setFilters({ ...filters, status: v === "all" ? undefined : v as any })
+                    setFilters({ ...filters, status: v as any })
                   }
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="physical_received">Physical Received</SelectItem>
+                    <SelectItem value="physical_received">Received</SelectItem>
                     <SelectItem value="reimbursed">Reimbursed</SelectItem>
                     <SelectItem value="rejected">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Company</Label>
-                <Select
-                  value={filters.company_id || "all"}
-                  onValueChange={(v) =>
-                    setFilters({ ...filters, company_id: v === "all" ? undefined : v })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    {dropdownData.companies.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>SC</Label>
-                <Select
-                  value={filters.sc_id || "all"}
-                  onValueChange={(v) =>
-                    setFilters({ ...filters, sc_id: v === "all" ? undefined : v })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    {dropdownData.scUsers.map((sc) => (
-                      <SelectItem key={sc.id} value={sc.id}>
-                        {sc.name}
-                      </SelectItem>
-                    ))}
                   </SelectContent>
                 </Select>
               </div>

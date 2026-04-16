@@ -39,7 +39,8 @@ export function FnSCycles() {
 
   const [addForm, setAddForm] = useState({
     name: "",
-    start_date: "",
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: "",
   });
   const [editForm, setEditForm] = useState({
     name: "",
@@ -54,7 +55,7 @@ export function FnSCycles() {
       const { data, error } = await supabase
         .from("reimbursement_cycles")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("start_date", { ascending: false });
 
       if (error) throw error;
       setCycles(data || []);
@@ -74,13 +75,22 @@ export function FnSCycles() {
   }, [fetchCycles]);
 
   const handleAdd = async () => {
+    if (!addForm.name || !addForm.start_date || !addForm.end_date) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
       const { error } = await supabase.from("reimbursement_cycles").insert({
         name: addForm.name,
         start_date: addForm.start_date,
-        end_date: null,
-        is_active: cycles.length === 0,
+        end_date: addForm.end_date,
+        is_active: false,
         is_closed: false,
       });
 
@@ -92,7 +102,7 @@ export function FnSCycles() {
       });
 
       setAddDialog(false);
-      setAddForm({ name: "", start_date: "" });
+      setAddForm({ name: "", start_date: new Date().toISOString().split('T')[0], end_date: "" });
       fetchCycles();
     } catch (err: any) {
       toast({
@@ -310,14 +320,25 @@ export function FnSCycles() {
                 placeholder="e.g., April 2026"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="add-start">Start Date</Label>
-              <Input
-                id="add-start"
-                type="date"
-                value={addForm.start_date}
-                onChange={(e) => setAddForm({ ...addForm, start_date: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="add-start">Start Date</Label>
+                <Input
+                  id="add-start"
+                  type="date"
+                  value={addForm.start_date}
+                  onChange={(e) => setAddForm({ ...addForm, start_date: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="add-end">End Date</Label>
+                <Input
+                  id="add-end"
+                  type="date"
+                  value={addForm.end_date}
+                  onChange={(e) => setAddForm({ ...addForm, end_date: e.target.value })}
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>

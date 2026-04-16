@@ -111,6 +111,18 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         query = query.eq("status", filters.status);
       }
 
+      if (filters.cycle_id && filters.cycle_id !== "all") {
+        query = query.eq("cycle_id", filters.cycle_id);
+      }
+
+      if (filters.date_from) {
+        query = query.gte("date", filters.date_from);
+      }
+
+      if (filters.date_to) {
+        query = query.lte("date", filters.date_to);
+      }
+
       const { data, error } = await query;
 
       if (error) throw error;
@@ -258,46 +270,20 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           <CardDescription>Filter bills by various criteria</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-5 bg-muted/50 p-4 rounded-lg">
             <div className="space-y-2">
-              <Label>SC</Label>
+              <Label>SC Cabinet</Label>
               <Select
                 value={filters.sc_id || "all"}
-                onValueChange={(v) =>
-                  setFilters({ ...filters, sc_id: v === "all" ? undefined : v })
-                }
+                onValueChange={(v) => setFilters({ ...filters, sc_id: v === "all" ? undefined : v })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="All Cabinets" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All SCs</SelectItem>
+                  <SelectItem value="all">All Cabinets</SelectItem>
                   {dropdownData.scUsers.map((sc) => (
-                    <SelectItem key={sc.id} value={sc.id}>
-                      {sc.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Company</Label>
-              <Select
-                value={filters.company_id || "all"}
-                onValueChange={(v) =>
-                  setFilters({ ...filters, company_id: v === "all" ? undefined : v })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Companies</SelectItem>
-                  {dropdownData.companies.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
+                    <SelectItem key={sc.id} value={sc.id}>{sc.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -307,17 +293,15 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
               <Label>Status</Label>
               <Select
                 value={filters.status || "all"}
-                onValueChange={(v) =>
-                  setFilters({ ...filters, status: v === "all" ? undefined : v as any })
-                }
+                onValueChange={(v) => setFilters({ ...filters, status: v === "all" ? undefined : v as any })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="All Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="physical_received">Physical Received</SelectItem>
+                  <SelectItem value="physical_received">Received</SelectItem>
                   <SelectItem value="reimbursed">Reimbursed</SelectItem>
                   <SelectItem value="rejected">Rejected</SelectItem>
                 </SelectContent>
@@ -325,25 +309,39 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
             </div>
 
             <div className="space-y-2">
-              <Label>Category</Label>
+              <Label>Cycle</Label>
               <Select
-                value={filters.category_id || "all"}
-                onValueChange={(v) =>
-                  setFilters({ ...filters, category_id: v === "all" ? undefined : v })
-                }
+                value={filters.cycle_id || "all"}
+                onValueChange={(v) => setFilters({ ...filters, cycle_id: v === "all" ? undefined : v })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="All Cycles" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {dropdownData.categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
+                  <SelectItem value="all">All Cycles</SelectItem>
+                  {dropdownData.cycles.map((cycle) => (
+                    <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>From Date</Label>
+              <Input
+                type="date"
+                value={filters.date_from || ""}
+                onChange={(e) => setFilters({ ...filters, date_from: e.target.value || undefined })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>To Date</Label>
+              <Input
+                type="date"
+                value={filters.date_to || ""}
+                onChange={(e) => setFilters({ ...filters, date_to: e.target.value || undefined })}
+              />
             </div>
           </div>
         </CardContent>
