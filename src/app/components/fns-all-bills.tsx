@@ -93,6 +93,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           categories:category_id(name),
           subcategories:subcategory_id(name)
         `)
+        .order("date", { ascending: false })
         .order("created_at", { ascending: false });
 
       if (filters.sc_id) {

@@ -96,6 +96,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           categories:category_id(name),
           subcategories:subcategory_id(name)
         `)
+        .order("date", { ascending: false })
         .order("created_at", { ascending: false });
 
       if (isSC) {
