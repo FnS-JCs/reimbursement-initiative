@@ -32,7 +32,14 @@ import {
   ExternalLink,
   CheckCircle2,
   XCircle,
+  RotateCcw,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/ui/tooltip";
 
 interface BillWithRelations extends Bill {
   users?: { name: string; email: string; role: Role };
@@ -59,12 +66,18 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
   const [dropdownData, setDropdownData] = useState<{
     companies: { id: string; name: string }[];
+    vendors: { id: string; name: string }[];
     categories: { id: string; name: string }[];
+    subCategories: { id: string; name: string }[];
+    categorySubCategories: { category_id: string; subcategory_id: string }[];
     scUsers: { id: string; name: string }[];
     cycles: { id: string; name: string; start_date: string; end_date: string }[];
   }>({
     companies: [],
+    vendors: [],
     categories: [],
+    subCategories: [],
+    categorySubCategories: [],
     scUsers: [],
     cycles: [],
   });
@@ -77,7 +90,27 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   const [editForm, setEditForm] = useState({
     status: "pending" as Bill["status"],
     amount: "",
+    vendor_id: "",
+    category_id: "",
+    subcategory_id: "",
+    bill_number: "",
+    date: "",
+    company_id: "" as string | null,
   });
+
+  const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+     if (editForm.category_id) {
+       const subCatIds = dropdownData.categorySubCategories
+         .filter((cs) => cs.category_id === editForm.category_id)
+         .map((cs) => cs.subcategory_id);
+       const filtered = dropdownData.subCategories.filter((sc) => subCatIds.includes(sc.id));
+       setFilteredSubCategories(filtered);
+     } else {
+       setFilteredSubCategories([]);
+     }
+   }, [editForm.category_id, dropdownData.categorySubCategories, dropdownData.subCategories]);
 
   const fetchBills = useCallback(async () => {
     setLoading(true);
@@ -93,6 +126,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           categories:category_id(name),
           subcategories:subcategory_id(name)
         `)
+        .or(`rejected_by_role.is.null,rejected_by_role.eq.fns`)
         .order("date", { ascending: false })
         .order("created_at", { ascending: false });
 
@@ -145,16 +179,30 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   }, [supabase, filters, toast]);
 
   const fetchDropdownData = useCallback(async () => {
-    const [companiesRes, categoriesRes, scUsersRes, cyclesRes] = await Promise.all([
+    const [
+      companiesRes, 
+      vendorsRes, 
+      categoriesRes, 
+      subCategoriesRes,
+      categorySubCategoriesRes,
+      scUsersRes, 
+      cyclesRes
+    ] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
+      supabase.from("vendors").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
+      supabase.from("subcategories").select("id, name").order("name"),
+      supabase.from("category_subcategories").select("category_id, subcategory_id"),
       supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
       supabase.from("reimbursement_cycles").select("id, name, start_date, end_date").order("created_at", { ascending: false }),
     ]);
 
     setDropdownData({
       companies: companiesRes.data || [],
+      vendors: vendorsRes.data || [],
       categories: categoriesRes.data || [],
+      subCategories: subCategoriesRes.data || [],
+      categorySubCategories: categorySubCategoriesRes.data || [],
       scUsers: scUsersRes.data || [],
       cycles: cyclesRes.data || [],
     });
@@ -172,6 +220,12 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     setEditForm({
       status: bill.status,
       amount: bill.amount.toString(),
+      vendor_id: bill.vendor_id,
+      category_id: bill.category_id,
+      subcategory_id: bill.subcategory_id,
+      bill_number: bill.bill_number,
+      date: bill.date,
+      company_id: bill.company_id,
     });
     setEditDialog({ open: true, bill });
   };
@@ -185,6 +239,12 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         .update({
           status: editForm.status,
           amount: parseFloat(editForm.amount),
+          vendor_id: editForm.vendor_id,
+          category_id: editForm.category_id,
+          subcategory_id: editForm.subcategory_id,
+          bill_number: editForm.bill_number,
+          date: editForm.date,
+          company_id: editForm.company_id || null,
         })
         .eq("id", editDialog.bill.id);
 
@@ -206,24 +266,57 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     }
   };
 
-  const handleDelete = async (billId: string) => {
-    if (!confirm("Are you sure you want to delete this bill?")) return;
+  const handleReject = async (bill: BillWithRelations) => {
+    if (!confirm("Are you sure you want to reject this bill?")) return;
 
     try {
-      const { error } = await supabase.from("bills").delete().eq("id", billId);
+      const { error } = await supabase
+        .from("bills")
+        .update({ 
+          status: "rejected",
+          rejected_by_role: "fns"
+        })
+        .eq("id", bill.id);
 
       if (error) throw error;
 
       toast({
-        title: "Bill deleted",
-        description: "The bill has been deleted successfully",
+        title: "Bill rejected",
+        description: "The bill has been rejected successfully",
       });
 
       fetchBills();
-    } catch (err) {
+    } catch (err: any) {
       toast({
         title: "Error",
-        description: "Failed to delete bill",
+        description: err.message || "Failed to reject bill",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUndoReject = async (bill: BillWithRelations) => {
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({ 
+          status: "pending",
+          rejected_by_role: null
+        })
+        .eq("id", bill.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Rejection undone",
+        description: "The bill status has been reset to pending",
+      });
+
+      fetchBills();
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to undo rejection",
         variant: "destructive",
       });
     }
@@ -460,31 +553,74 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => handleEdit(bill)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => handleDelete(bill.id)}
-                          >
-                            <XCircle className="h-4 w-4 text-destructive" />
-                          </Button>
-                          {bill.file_url && (
-                            <a href={bill.file_url} target="_blank" rel="noopener noreferrer">
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
-                            </a>
-                          )}
-                        </div>
+                        <TooltipProvider>
+                          <div className="flex items-center justify-center gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => handleEdit(bill)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Edit bill details</p>
+                              </TooltipContent>
+                            </Tooltip>
+
+                            {bill.status === "rejected" ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => handleUndoReject(bill)}
+                                  >
+                                    <RotateCcw className="h-4 w-4 text-blue-600" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Undo rejection</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => handleReject(bill)}
+                                  >
+                                    <XCircle className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Reject bill</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+
+                            {bill.file_url && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a href={bill.file_url} target="_blank" rel="noopener noreferrer">
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                      <ExternalLink className="h-4 w-4" />
+                                    </Button>
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>View drive link</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </TooltipProvider>
                       </td>
                     </tr>
                   );
@@ -499,39 +635,131 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         open={editDialog.open}
         onOpenChange={(open) => setEditDialog({ open, bill: null })}
       >
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Edit Bill</DialogTitle>
+            <DialogTitle>Edit Bill Details</DialogTitle>
             <DialogDescription>
-              Make changes to the bill status or amount.
+              Modify the bill information as required.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select
-                value={editForm.status}
-                onValueChange={(v) => setEditForm({ ...editForm, status: v as Bill["status"] })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="physical_received">Physical Received</SelectItem>
-                  <SelectItem value="reimbursed">Reimbursed</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
+          <div className="grid gap-6 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select
+                  value={editForm.status}
+                  onValueChange={(v) => setEditForm({ ...editForm, status: v as Bill["status"] })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="physical_received">Physical Received</SelectItem>
+                    <SelectItem value="reimbursed">Reimbursed</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Amount (INR)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={editForm.amount}
+                  onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Amount (INR)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={editForm.amount}
-                onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
-              />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Vendor</Label>
+                <Select
+                  value={editForm.vendor_id}
+                  onValueChange={(v) => setEditForm({ ...editForm, vendor_id: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dropdownData.vendors.map((vendor) => (
+                      <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Bill Number</Label>
+                <Input
+                  value={editForm.bill_number}
+                  onChange={(e) => setEditForm({ ...editForm, bill_number: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select
+                  value={editForm.category_id}
+                  onValueChange={(v) => setEditForm({ ...editForm, category_id: v, subcategory_id: "" })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dropdownData.categories.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Sub-Category</Label>
+                <Select
+                  value={editForm.subcategory_id}
+                  onValueChange={(v) => setEditForm({ ...editForm, subcategory_id: v })}
+                  disabled={!editForm.category_id}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredSubCategories.map((sc) => (
+                      <SelectItem key={sc.id} value={sc.id}>{sc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Bill Date</Label>
+                <Input
+                  type="date"
+                  value={editForm.date}
+                  onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Company (Optional)</Label>
+                <Select
+                  value={editForm.company_id || "none"}
+                  onValueChange={(v) => setEditForm({ ...editForm, company_id: v === "none" ? null : v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="General" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">General (No Company)</SelectItem>
+                    {dropdownData.companies.map((company) => (
+                      <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter>

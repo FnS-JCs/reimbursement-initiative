@@ -33,7 +33,15 @@ import {
   AlertCircle,
   Loader2,
   ExternalLink,
+  Edit,
+  RotateCcw,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/ui/tooltip";
 
 interface BillListProps {
   userId: string;
@@ -70,17 +78,52 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     reason: string;
   }>({ open: false, billId: null, reason: "" });
 
+  const [editDialog, setEditDialog] = useState<{
+    open: boolean;
+    bill: BillWithRelations | null;
+  }>({ open: false, bill: null });
+
+  const [editForm, setEditForm] = useState({
+    amount: "",
+    vendor_id: "",
+    category_id: "",
+    subcategory_id: "",
+    bill_number: "",
+    date: "",
+    company_id: "" as string | null,
+  });
+
+  const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
+
   const [dropdownData, setDropdownData] = useState<{
     companies: { id: string; name: string }[];
+    vendors: { id: string; name: string }[];
     categories: { id: string; name: string }[];
+    subCategories: { id: string; name: string }[];
+    categorySubCategories: { category_id: string; subcategory_id: string }[];
     scUsers: { id: string; name: string }[];
     cycles: { id: string; name: string; start_date: string; end_date: string }[];
   }>({
     companies: [],
+    vendors: [],
     categories: [],
+    subCategories: [],
+    categorySubCategories: [],
     scUsers: [],
     cycles: [],
   });
+
+  useEffect(() => {
+    if (editForm.category_id) {
+      const subCatIds = dropdownData.categorySubCategories
+        .filter((cs) => cs.category_id === editForm.category_id)
+        .map((cs) => cs.subcategory_id);
+      const filtered = dropdownData.subCategories.filter((sc) => subCatIds.includes(sc.id));
+      setFilteredSubCategories(filtered);
+    } else {
+      setFilteredSubCategories([]);
+    }
+  }, [editForm.category_id, dropdownData.categorySubCategories, dropdownData.subCategories]);
 
   const fetchBills = useCallback(async () => {
     setLoading(true);
@@ -158,16 +201,30 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   }, [supabase, userId, isSC, filters, toast]);
 
   const fetchDropdownData = useCallback(async () => {
-    const [companiesRes, categoriesRes, scUsersRes, cyclesRes] = await Promise.all([
+    const [
+      companiesRes, 
+      vendorsRes, 
+      categoriesRes, 
+      subCategoriesRes,
+      categorySubCategoriesRes,
+      scUsersRes, 
+      cyclesRes
+    ] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
+      supabase.from("vendors").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
+      supabase.from("subcategories").select("id, name").order("name"),
+      supabase.from("category_subcategories").select("category_id, subcategory_id"),
       supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
       supabase.from("reimbursement_cycles").select("id, name, start_date, end_date").order("created_at", { ascending: false }),
     ]);
 
     setDropdownData({
       companies: companiesRes.data || [],
+      vendors: vendorsRes.data || [],
       categories: categoriesRes.data || [],
+      subCategories: subCategoriesRes.data || [],
+      categorySubCategories: categorySubCategoriesRes.data || [],
       scUsers: scUsersRes.data || [],
       cycles: cyclesRes.data || [],
     });
@@ -204,6 +261,110 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       toast({
         title: "Error",
         description: "Failed to update status",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleEdit = (bill: BillWithRelations) => {
+    setEditForm({
+      amount: bill.amount.toString(),
+      vendor_id: bill.vendor_id,
+      category_id: bill.category_id,
+      subcategory_id: bill.subcategory_id,
+      bill_number: bill.bill_number,
+      date: bill.date,
+      company_id: bill.company_id,
+    });
+    setEditDialog({ open: true, bill });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editDialog.bill) return;
+
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({
+          amount: parseFloat(editForm.amount),
+          vendor_id: editForm.vendor_id,
+          category_id: editForm.category_id,
+          subcategory_id: editForm.subcategory_id,
+          bill_number: editForm.bill_number,
+          date: editForm.date,
+          company_id: editForm.company_id || null,
+        })
+        .eq("id", editDialog.bill.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Bill updated",
+        description: "The bill has been updated successfully",
+      });
+
+      setEditDialog({ open: false, bill: null });
+      fetchBills();
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to update bill",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleReject = async (billId: string) => {
+    if (!confirm("Are you sure you want to reject this bill?")) return;
+
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({ 
+          status: "rejected",
+          rejected_by_role: "sc"
+        })
+        .eq("id", billId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Bill rejected",
+        description: "The bill has been rejected successfully",
+      });
+
+      fetchBills();
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to reject bill",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUndoReject = async (billId: string) => {
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({ 
+          status: "pending",
+          rejected_by_role: null
+        })
+        .eq("id", billId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Rejection undone",
+        description: "The bill status has been reset to pending",
+      });
+
+      fetchBills();
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to undo rejection",
         variant: "destructive",
       });
     }
@@ -383,13 +544,134 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
               userId={userId}
               isSC={isSC}
               onUpdateStatus={handleUpdateStatus}
-              onReject={(id) =>
-                setRejectDialog({ open: true, billId: id, reason: "" })
-              }
+              onReject={handleReject}
+              onUndoReject={handleUndoReject}
+              onEdit={handleEdit}
             />
           ))
         )}
       </div>
+
+      <Dialog
+        open={editDialog.open}
+        onOpenChange={(open) => setEditDialog({ open, bill: null })}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Bill Details</DialogTitle>
+            <DialogDescription>
+              Modify the bill information as required.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-6 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Amount (INR)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={editForm.amount}
+                  onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Vendor</Label>
+                <Select
+                  value={editForm.vendor_id}
+                  onValueChange={(v) => setEditForm({ ...editForm, vendor_id: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dropdownData.vendors.map((vendor) => (
+                      <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Bill Number</Label>
+                <Input
+                  value={editForm.bill_number}
+                  onChange={(e) => setEditForm({ ...editForm, bill_number: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Bill Date</Label>
+                <Input
+                  type="date"
+                  value={editForm.date}
+                  onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select
+                  value={editForm.category_id}
+                  onValueChange={(v) => setEditForm({ ...editForm, category_id: v, subcategory_id: "" })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dropdownData.categories.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Sub-Category</Label>
+                <Select
+                  value={editForm.subcategory_id}
+                  onValueChange={(v) => setEditForm({ ...editForm, subcategory_id: v })}
+                  disabled={!editForm.category_id}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredSubCategories.map((sc) => (
+                      <SelectItem key={sc.id} value={sc.id}>{sc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Company (Optional)</Label>
+              <Select
+                value={editForm.company_id || "none"}
+                onValueChange={(v) => setEditForm({ ...editForm, company_id: v === "none" ? null : v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="General" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">General (No Company)</SelectItem>
+                  {dropdownData.companies.map((company) => (
+                    <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialog({ open: false, bill: null })}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -400,9 +682,11 @@ interface BillCardProps {
   isSC: boolean;
   onUpdateStatus: (id: string, status: string) => void;
   onReject: (id: string) => void;
+  onUndoReject: (id: string) => void;
+  onEdit: (bill: BillWithRelations) => void;
 }
 
-function BillCard({ bill, userId, isSC, onUpdateStatus, onReject }: BillCardProps) {
+function BillCard({ bill, userId, isSC, onUpdateStatus, onReject, onUndoReject, onEdit }: BillCardProps) {
   const isSubmitter = bill.user_id === userId;
   const isAssignedSC = bill.sc_cabinets?.user_id === userId;
   const canTakeAction = isSC && !isSubmitter && isAssignedSC;
@@ -451,15 +735,24 @@ function BillCard({ bill, userId, isSC, onUpdateStatus, onReject }: BillCardProp
             )}
 
             {bill.file_url && (
-              <a
-                href={bill.file_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-              >
-                <ExternalLink className="h-3 w-3" />
-                View Bill
-              </a>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <a
+                      href={bill.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      View Bill
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>View drive link</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
           </div>
 
@@ -471,33 +764,80 @@ function BillCard({ bill, userId, isSC, onUpdateStatus, onReject }: BillCardProp
               <span className={cn("text-sm", status.color)}>{status.label}</span>
             </div>
 
-            {canTakeAction && !isRejected && (
+            <TooltipProvider>
               <div className="flex gap-2 mt-4 pt-4 border-t">
-                {bill.status === "pending" && (
-                  <Button
-                    size="sm"
-                    onClick={() => onUpdateStatus(bill.id, "physical_received")}
-                  >
-                    Mark Received
-                  </Button>
+                {canTakeAction && (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => onEdit(bill)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Edit bill details</p>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {isRejected ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => onUndoReject(bill.id)}
+                          >
+                            <RotateCcw className="h-4 w-4 text-blue-600" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Undo rejection</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => onReject(bill.id)}
+                          >
+                            <XCircle className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Reject bill</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {bill.status === "pending" && !isRejected && (
+                      <Button
+                        size="sm"
+                        onClick={() => onUpdateStatus(bill.id, "physical_received")}
+                      >
+                        Mark Received
+                      </Button>
+                    )}
+                    {bill.status === "physical_received" && !isRejected && (
+                      <Button
+                        size="sm"
+                        onClick={() => onUpdateStatus(bill.id, "reimbursed")}
+                      >
+                        Mark Reimbursed
+                      </Button>
+                    )}
+                  </>
                 )}
-                {bill.status === "physical_received" && (
-                  <Button
-                    size="sm"
-                    onClick={() => onUpdateStatus(bill.id, "reimbursed")}
-                  >
-                    Mark Reimbursed
-                  </Button>
-                )}
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => onReject(bill.id)}
-                >
-                  Reject
-                </Button>
               </div>
-            )}
+            </TooltipProvider>
           </div>
         </div>
       </CardContent>
