@@ -40,7 +40,7 @@ interface DropdownData {
   categorySubCategories: { category_id: string; subcategory_id: string }[];
   scCabinets: { id: string; name: string }[];
   processTypes: { id: string; name: string }[];
-  activeCycle: { id: string; name: string } | null;
+  cycles: { id: string; name: string; start_date: string; end_date: string }[];
 }
 
 export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
@@ -58,7 +58,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
     categorySubCategories: [],
     scCabinets: [],
     processTypes: [],
-    activeCycle: null,
+    cycles: [],
   });
 
   const [billDate, setBillDate] = useState("");
@@ -96,7 +96,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       supabase.from("category_subcategories").select("category_id, subcategory_id"),
       supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
       supabase.from("process_types").select("id, name").eq("is_active", true).order("name"),
-      supabase.from("reimbursement_cycles").select("id, name").eq("is_active", true).single(),
+      supabase.from("reimbursement_cycles").select("id, name, start_date, end_date").eq("is_closed", false),
     ]);
 
     setDropdownData({
@@ -107,7 +107,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       categorySubCategories: categorySubCategoriesRes.data || [],
       scCabinets: scCabinetsRes.data || [],
       processTypes: processTypesRes.data || [],
-      activeCycle: cyclesRes.data || null,
+      cycles: cyclesRes.data || [],
     });
   }, [supabase]);
 
@@ -236,6 +236,19 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       }
 
       const selectedProcessType = dropdownData.processTypes.find(p => p.id === processTypeId);
+      
+      // Find the cycle that contains the bill date
+      const billDateObj = new Date(billDate);
+      const matchedCycle = dropdownData.cycles.find(cycle => {
+        const startDate = new Date(cycle.start_date);
+        const endDate = new Date(cycle.end_date);
+        return billDateObj >= startDate && billDateObj <= endDate;
+      });
+
+      if (!matchedCycle) {
+        throw new Error(`The selected bill date ${billDate} does not fall within any open reimbursement cycle. Please contact FnS.`);
+      }
+
       const billData = {
         user_id: userId,
         submitted_by_role: normalizedRole,
@@ -250,6 +263,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
         process_type: showCompanyFields && selectedProcessType ? selectedProcessType.name : null,
         file_url: fileUrl,
         status: "pending",
+        cycle_id: matchedCycle.id,
       };
 
       const { error: insertError } = await supabase.from("bills").insert(billData);

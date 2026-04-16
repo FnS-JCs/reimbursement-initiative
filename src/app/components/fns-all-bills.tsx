@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
@@ -61,7 +61,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     companies: { id: string; name: string }[];
     categories: { id: string; name: string }[];
     scUsers: { id: string; name: string }[];
-    cycles: { id: string; name: string }[];
+    cycles: { id: string; name: string; start_date: string; end_date: string }[];
   }>({
     companies: [],
     categories: [],
@@ -112,15 +112,20 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       }
 
       if (filters.cycle_id && filters.cycle_id !== "all") {
-        query = query.eq("cycle_id", filters.cycle_id);
-      }
-
-      if (filters.date_from) {
-        query = query.gte("date", filters.date_from);
-      }
-
-      if (filters.date_to) {
-        query = query.lte("date", filters.date_to);
+        const selectedCycle = dropdownData.cycles.find(c => c.id === filters.cycle_id);
+        if (selectedCycle) {
+          query = query.gte("date", selectedCycle.start_date);
+          if (selectedCycle.end_date) {
+            query = query.lte("date", selectedCycle.end_date);
+          }
+        }
+      } else {
+        if (filters.date_from) {
+          query = query.gte("date", filters.date_from);
+        }
+        if (filters.date_to) {
+          query = query.lte("date", filters.date_to);
+        }
       }
 
       const { data, error } = await query;
@@ -143,7 +148,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
       supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
-      supabase.from("reimbursement_cycles").select("id, name").order("created_at", { ascending: false }),
+      supabase.from("reimbursement_cycles").select("id, name, start_date, end_date").order("created_at", { ascending: false }),
     ]);
 
     setDropdownData({
@@ -225,6 +230,14 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
   const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
 
+  const pendingAmount = bills
+    .filter((b) => b.status === "pending" || b.status === "physical_received")
+    .reduce((sum, b) => sum + b.amount, 0);
+
+  const reimbursedAmount = bills
+    .filter((b) => b.status === "reimbursed")
+    .reduce((sum, b) => sum + b.amount, 0);
+
   const statusConfig = {
     pending: { label: "Pending", color: "text-yellow-600", icon: XCircle },
     physical_received: { label: "Received", color: "text-blue-600", icon: CheckCircle2 },
@@ -244,30 +257,39 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{bills.length}</div>
-            <p className="text-sm text-muted-foreground">Total Bills</p>
+            <div className="text-2xl font-bold">{formatCurrency(pendingAmount)}</div>
+            <p className="text-sm text-muted-foreground">Pending Reimbursement</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-green-600">{formatCurrency(reimbursedAmount)}</div>
+            <p className="text-sm text-muted-foreground">Reimbursed</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold">{formatCurrency(totalAmount)}</div>
-            <p className="text-sm text-muted-foreground">Total Amount</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold">
-              {bills.filter((b) => b.status === "reimbursed").length}
-            </div>
-            <p className="text-sm text-muted-foreground">Reimbursed</p>
+            <p className="text-sm text-muted-foreground">Grand Total</p>
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Filters</CardTitle>
-          <CardDescription>Filter bills by various criteria</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">Filters</CardTitle>
+              <CardDescription>Filter bills by various criteria</CardDescription>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setFilters({})}
+            >
+              Clear Filters
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-5 bg-muted/50 p-4 rounded-lg">
@@ -312,7 +334,14 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
               <Label>Cycle</Label>
               <Select
                 value={filters.cycle_id || "all"}
-                onValueChange={(v) => setFilters({ ...filters, cycle_id: v === "all" ? undefined : v })}
+                onValueChange={(v) =>
+                  setFilters({ 
+                    ...filters, 
+                    cycle_id: v === "all" ? undefined : v,
+                    date_from: undefined,
+                    date_to: undefined
+                  })
+                }
               >
                 <SelectTrigger>
                   <SelectValue placeholder="All Cycles" />
@@ -327,22 +356,34 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
             </div>
 
             <div className="space-y-2">
-              <Label>From Date</Label>
-              <Input
-                type="date"
-                value={filters.date_from || ""}
-                onChange={(e) => setFilters({ ...filters, date_from: e.target.value || undefined })}
-              />
-            </div>
+          <Label>From Date</Label>
+          <Input
+            type="date"
+            value={filters.date_from || ""}
+            onChange={(e) => 
+              setFilters({ 
+                ...filters, 
+                date_from: e.target.value || undefined,
+                cycle_id: undefined
+              })
+            }
+          />
+        </div>
 
-            <div className="space-y-2">
-              <Label>To Date</Label>
-              <Input
-                type="date"
-                value={filters.date_to || ""}
-                onChange={(e) => setFilters({ ...filters, date_to: e.target.value || undefined })}
-              />
-            </div>
+        <div className="space-y-2">
+          <Label>To Date</Label>
+          <Input
+            type="date"
+            value={filters.date_to || ""}
+            onChange={(e) => 
+              setFilters({ 
+                ...filters, 
+                date_to: e.target.value || undefined,
+                cycle_id: undefined
+              })
+            }
+          />
+        </div>
           </div>
         </CardContent>
       </Card>

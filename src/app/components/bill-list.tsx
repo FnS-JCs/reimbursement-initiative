@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
@@ -74,7 +74,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     companies: { id: string; name: string }[];
     categories: { id: string; name: string }[];
     scUsers: { id: string; name: string }[];
-    cycles: { id: string; name: string }[];
+    cycles: { id: string; name: string; start_date: string; end_date: string }[];
   }>({
     companies: [],
     categories: [],
@@ -125,15 +125,20 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       }
 
       if (filters.cycle_id && filters.cycle_id !== "all") {
-        query = query.eq("cycle_id", filters.cycle_id);
-      }
-
-      if (filters.date_from) {
-        query = query.gte("date", filters.date_from);
-      }
-
-      if (filters.date_to) {
-        query = query.lte("date", filters.date_to);
+        const selectedCycle = dropdownData.cycles.find(c => c.id === filters.cycle_id);
+        if (selectedCycle) {
+          query = query.gte("date", selectedCycle.start_date);
+          if (selectedCycle.end_date) {
+            query = query.lte("date", selectedCycle.end_date);
+          }
+        }
+      } else {
+        if (filters.date_from) {
+          query = query.gte("date", filters.date_from);
+        }
+        if (filters.date_to) {
+          query = query.lte("date", filters.date_to);
+        }
       }
 
       const { data, error } = await query;
@@ -156,7 +161,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
       supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
-      supabase.from("reimbursement_cycles").select("id, name").order("created_at", { ascending: false }),
+      supabase.from("reimbursement_cycles").select("id, name, start_date, end_date").order("created_at", { ascending: false }),
     ]);
 
     setDropdownData({
@@ -203,6 +208,8 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
   };
 
+  const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
+
   const pendingAmount = bills
     .filter((b) => b.status === "pending" || b.status === "physical_received")
     .reduce((sum, b) => sum + b.amount, 0);
@@ -228,8 +235,8 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{bills.length}</div>
-            <p className="text-sm text-muted-foreground">Total Bills</p>
+            <div className="text-2xl font-bold">{formatCurrency(totalAmount)}</div>
+            <p className="text-sm text-muted-foreground">Grand Total</p>
           </CardContent>
         </Card>
       </div>
@@ -242,6 +249,13 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                 <CardTitle className="text-lg">Filters</CardTitle>
                 <CardDescription>Filter bills by various criteria</CardDescription>
               </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setFilters({ submitted_by_filter: "all", status: "all" })}
+              >
+                Clear Filters
+              </Button>
             </div>
           </CardHeader>
           <CardContent>
@@ -270,7 +284,12 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                 <Select
                   value={filters.cycle_id || "all"}
                   onValueChange={(v) =>
-                    setFilters({ ...filters, cycle_id: v === "all" ? undefined : v })
+                    setFilters({ 
+                      ...filters, 
+                      cycle_id: v === "all" ? undefined : v,
+                      date_from: undefined,
+                      date_to: undefined
+                    })
                   }
                 >
                   <SelectTrigger>
@@ -290,7 +309,13 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                 <Input
                   type="date"
                   value={filters.date_from || ""}
-                  onChange={(e) => setFilters({ ...filters, date_from: e.target.value || undefined })}
+                  onChange={(e) => 
+                    setFilters({ 
+                      ...filters, 
+                      date_from: e.target.value || undefined,
+                      cycle_id: undefined
+                    })
+                  }
                 />
               </div>
 
@@ -299,7 +324,13 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                 <Input
                   type="date"
                   value={filters.date_to || ""}
-                  onChange={(e) => setFilters({ ...filters, date_to: e.target.value || undefined })}
+                  onChange={(e) => 
+                    setFilters({ 
+                      ...filters, 
+                      date_to: e.target.value || undefined,
+                      cycle_id: undefined
+                    })
+                  }
                 />
               </div>
 
