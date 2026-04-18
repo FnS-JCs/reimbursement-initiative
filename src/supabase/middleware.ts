@@ -49,9 +49,6 @@ export async function updateSession(request: NextRequest) {
   const isAuthPage = request.nextUrl.pathname.startsWith('/auth');
   const isPublicPage = request.nextUrl.pathname === '/';
 
-  // Temporary bypass for development - remove this before production
-  return supabaseResponse;
-
   if (!user && !isAuthPage && !isPublicPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/login';
