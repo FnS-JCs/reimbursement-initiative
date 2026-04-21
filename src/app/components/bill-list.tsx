@@ -22,7 +22,8 @@ import {
 } from "@/ui/dialog";
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
-import { Bill, Role, BillFilters } from "@/types";
+import { Textarea } from "@/ui/textarea";
+import { Bill, Role, BillFilters, BillComment } from "@/types";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
 import {
@@ -58,6 +59,8 @@ interface BillWithRelations extends Bill {
   categories?: { name: string };
   subcategories?: { name: string };
   reimbursement_cycles?: { name: string };
+  fns_comment?: BillComment | null;
+  sc_rejection_comment?: BillComment | null;
 }
 
 export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) {
@@ -74,9 +77,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   const [rejectDialog, setRejectDialog] = useState<{
     open: boolean;
-    billId: string | null;
-    reason: string;
-  }>({ open: false, billId: null, reason: "" });
+    bill: BillWithRelations | null;
+    comment: string;
+  }>({ open: false, bill: null, comment: "" });
 
   const [editDialog, setEditDialog] = useState<{
     open: boolean;
@@ -188,7 +191,44 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       const { data, error } = await query;
 
       if (error) throw error;
-      setBills(data || []);
+
+      const fetchedBills = data || [];
+      const billIds = fetchedBills.map((bill) => bill.id);
+      let commentsByBill = new Map<string, { fns?: BillComment; sc?: BillComment }>();
+
+      if (billIds.length > 0) {
+        const { data: comments, error: commentsError } = await supabase
+          .from("bill_comments")
+          .select("id, bill_id, author_role, body, created_at, updated_at")
+          .in("bill_id", billIds)
+          .order("created_at", { ascending: false });
+
+        if (commentsError) throw commentsError;
+
+        commentsByBill = (comments || []).reduce((map, comment) => {
+          const typedComment = comment as BillComment;
+          const current = map.get(typedComment.bill_id) || {};
+          if (typedComment.author_role === "fns" && !current.fns) {
+            current.fns = typedComment;
+          }
+          if (typedComment.author_role === "sc" && !current.sc) {
+            current.sc = typedComment;
+          }
+          map.set(typedComment.bill_id, current);
+          return map;
+        }, new Map<string, { fns?: BillComment; sc?: BillComment }>());
+      }
+
+      setBills(
+        fetchedBills.map((bill) => {
+          const comments = commentsByBill.get(bill.id);
+          return {
+            ...bill,
+            fns_comment: comments?.fns || null,
+            sc_rejection_comment: comments?.sc || null,
+          };
+        })
+      );
     } catch (err) {
       toast({
         title: "Error",
@@ -244,7 +284,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ status })
+        .update({ status, rejected_by_role: null })
         .eq("id", billId);
 
       if (error) throw error;
@@ -314,8 +354,26 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
   };
 
-  const handleReject = async (billId: string) => {
-    if (!confirm("Are you sure you want to reject this bill?")) return;
+  const openRejectDialog = (bill: BillWithRelations) => {
+    setRejectDialog({
+      open: true,
+      bill,
+      comment: bill.sc_rejection_comment?.body || "",
+    });
+  };
+
+  const handleReject = async () => {
+    if (!rejectDialog.bill) return;
+
+    const trimmedComment = rejectDialog.comment.trim();
+    if (!trimmedComment) {
+      toast({
+        title: "Comment required",
+        description: "Add a reason before rejecting this bill.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       const { error } = await supabase
@@ -324,15 +382,29 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           status: "rejected",
           rejected_by_role: "sc"
         })
-        .eq("id", billId);
+        .eq("id", rejectDialog.bill.id);
 
       if (error) throw error;
+
+      const { error: commentError } = await supabase
+        .from("bill_comments")
+        .upsert(
+          {
+            bill_id: rejectDialog.bill.id,
+            author_role: "sc",
+            body: trimmedComment,
+          },
+          { onConflict: "bill_id,author_role" }
+        );
+
+      if (commentError) throw commentError;
 
       toast({
         title: "Bill rejected",
         description: "The bill has been rejected successfully",
       });
 
+      setRejectDialog({ open: false, bill: null, comment: "" });
       fetchBills();
     } catch (err: any) {
       toast({
@@ -544,7 +616,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
               userId={userId}
               isSC={isSC}
               onUpdateStatus={handleUpdateStatus}
-              onReject={handleReject}
+              onReject={openRejectDialog}
               onUndoReject={handleUndoReject}
               onEdit={handleEdit}
             />
@@ -672,6 +744,36 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={rejectDialog.open}
+        onOpenChange={(open) => setRejectDialog({ open, bill: open ? rejectDialog.bill : null, comment: open ? rejectDialog.comment : "" })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Bill</DialogTitle>
+            <DialogDescription>
+              Add a reason that will be visible to the JC who submitted this bill.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <Label>Reason</Label>
+            <Textarea
+              value={rejectDialog.comment}
+              onChange={(e) => setRejectDialog({ ...rejectDialog, comment: e.target.value })}
+              placeholder="Explain why this bill is being rejected"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialog({ open: false, bill: null, comment: "" })}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleReject}>
+              Reject Bill
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -681,7 +783,7 @@ interface BillCardProps {
   userId: string;
   isSC: boolean;
   onUpdateStatus: (id: string, status: string) => void;
-  onReject: (id: string) => void;
+  onReject: (bill: BillWithRelations) => void;
   onUndoReject: (id: string) => void;
   onEdit: (bill: BillWithRelations) => void;
 }
@@ -732,6 +834,22 @@ function BillCard({ bill, userId, isSC, onUpdateStatus, onReject, onUndoReject, 
               <p className="text-sm text-muted-foreground">
                 SC/Cabinet: {bill.sc_cabinets.name}
               </p>
+            )}
+
+            {isSC && bill.fns_comment && (
+              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+                <p className="font-medium text-foreground">
+                  {isRejected && bill.rejected_by_role === "fns" ? "Rejected by FnS" : "FnS Comment"}
+                </p>
+                <p className="mt-1 text-muted-foreground">{bill.fns_comment.body}</p>
+              </div>
+            )}
+
+            {isRejected && bill.rejected_by_role === "sc" && bill.sc_rejection_comment && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                <p className="font-medium text-destructive">Rejected by SC</p>
+                <p className="mt-1 text-muted-foreground">{bill.sc_rejection_comment.body}</p>
+              </div>
             )}
 
             {bill.file_url && (
@@ -807,7 +925,7 @@ function BillCard({ bill, userId, isSC, onUpdateStatus, onReject, onUndoReject, 
                             variant="ghost"
                             size="sm"
                             className="h-8 w-8 p-0"
-                            onClick={() => onReject(bill.id)}
+                            onClick={() => onReject(bill)}
                           >
                             <XCircle className="h-4 w-4 text-destructive" />
                           </Button>
