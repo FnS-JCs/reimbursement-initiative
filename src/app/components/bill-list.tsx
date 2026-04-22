@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
@@ -22,19 +22,20 @@ import {
 } from "@/ui/dialog";
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
-import { Bill, Role, BillFilters } from "@/types";
-import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { Textarea } from "@/ui/textarea";
+import { Bill, Role, BillFilters, BillComment } from "@/types";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
 import {
   CheckCircle2,
   XCircle,
-  Clock,
   FileText,
-  AlertCircle,
   Loader2,
   ExternalLink,
   Edit,
   RotateCcw,
+  ArrowDown,
+  ArrowUp,
 } from "lucide-react";
 import {
   Tooltip,
@@ -58,6 +59,8 @@ interface BillWithRelations extends Bill {
   categories?: { name: string };
   subcategories?: { name: string };
   reimbursement_cycles?: { name: string };
+  fns_comment?: BillComment | null;
+  sc_rejection_comment?: BillComment | null;
 }
 
 export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) {
@@ -66,6 +69,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   const [bills, setBills] = useState<BillWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dateSort, setDateSort] = useState<"desc" | "asc">("desc");
 
   const [filters, setFilters] = useState<BillFilters>({
     submitted_by_filter: "all",
@@ -74,9 +78,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   const [rejectDialog, setRejectDialog] = useState<{
     open: boolean;
-    billId: string | null;
-    reason: string;
-  }>({ open: false, billId: null, reason: "" });
+    bill: BillWithRelations | null;
+    comment: string;
+  }>({ open: false, bill: null, comment: "" });
 
   const [editDialog, setEditDialog] = useState<{
     open: boolean;
@@ -139,8 +143,8 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           categories:category_id(name),
           subcategories:subcategory_id(name)
         `)
-        .order("date", { ascending: false })
-        .order("created_at", { ascending: false });
+        .order("date", { ascending: dateSort === "asc" })
+        .order("created_at", { ascending: dateSort === "asc" });
 
       if (isSC) {
         if (filters.submitted_by_filter === "myself") {
@@ -188,7 +192,44 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       const { data, error } = await query;
 
       if (error) throw error;
-      setBills(data || []);
+
+      const fetchedBills = data || [];
+      const billIds = fetchedBills.map((bill) => bill.id);
+      let commentsByBill = new Map<string, { fns?: BillComment; sc?: BillComment }>();
+
+      if (billIds.length > 0) {
+        const { data: comments, error: commentsError } = await supabase
+          .from("bill_comments")
+          .select("id, bill_id, author_role, body, created_at, updated_at")
+          .in("bill_id", billIds)
+          .order("created_at", { ascending: false });
+
+        if (commentsError) throw commentsError;
+
+        commentsByBill = (comments || []).reduce((map, comment) => {
+          const typedComment = comment as BillComment;
+          const current = map.get(typedComment.bill_id) || {};
+          if (typedComment.author_role === "fns" && !current.fns) {
+            current.fns = typedComment;
+          }
+          if (typedComment.author_role === "sc" && !current.sc) {
+            current.sc = typedComment;
+          }
+          map.set(typedComment.bill_id, current);
+          return map;
+        }, new Map<string, { fns?: BillComment; sc?: BillComment }>());
+      }
+
+      setBills(
+        fetchedBills.map((bill) => {
+          const comments = commentsByBill.get(bill.id);
+          return {
+            ...bill,
+            fns_comment: comments?.fns || null,
+            sc_rejection_comment: comments?.sc || null,
+          };
+        })
+      );
     } catch (err) {
       toast({
         title: "Error",
@@ -198,7 +239,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     } finally {
       setLoading(false);
     }
-  }, [supabase, userId, isSC, filters, toast]);
+  }, [supabase, userId, isSC, filters, dateSort, toast]);
 
   const fetchDropdownData = useCallback(async () => {
     const [
@@ -244,7 +285,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ status })
+        .update({ status, rejected_by_role: null })
         .eq("id", billId);
 
       if (error) throw error;
@@ -314,8 +355,26 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
   };
 
-  const handleReject = async (billId: string) => {
-    if (!confirm("Are you sure you want to reject this bill?")) return;
+  const openRejectDialog = (bill: BillWithRelations) => {
+    setRejectDialog({
+      open: true,
+      bill,
+      comment: bill.sc_rejection_comment?.body || "",
+    });
+  };
+
+  const handleReject = async () => {
+    if (!rejectDialog.bill) return;
+
+    const trimmedComment = rejectDialog.comment.trim();
+    if (!trimmedComment) {
+      toast({
+        title: "Comment required",
+        description: "Add a reason before rejecting this bill.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       const { error } = await supabase
@@ -324,15 +383,29 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           status: "rejected",
           rejected_by_role: "sc"
         })
-        .eq("id", billId);
+        .eq("id", rejectDialog.bill.id);
 
       if (error) throw error;
+
+      const { error: commentError } = await supabase
+        .from("bill_comments")
+        .upsert(
+          {
+            bill_id: rejectDialog.bill.id,
+            author_role: "sc",
+            body: trimmedComment,
+          },
+          { onConflict: "bill_id,author_role" }
+        );
+
+      if (commentError) throw commentError;
 
       toast({
         title: "Bill rejected",
         description: "The bill has been rejected successfully",
       });
 
+      setRejectDialog({ open: false, bill: null, comment: "" });
       fetchBills();
     } catch (err: any) {
       toast({
@@ -379,6 +452,49 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   const reimbursedAmount = bills
     .filter((b) => b.status === "reimbursed")
     .reduce((sum, b) => sum + b.amount, 0);
+
+  const statusConfig = {
+    pending: { label: "Pending" },
+    physical_received: { label: "Received" },
+    reimbursed: { label: "Reimbursed" },
+    rejected: { label: "Rejected" },
+  };
+
+  const getStatusLabel = (bill: BillWithRelations) => {
+    if (bill.status !== "rejected") {
+      return statusConfig[bill.status].label;
+    }
+
+    if (bill.rejected_by_role === "fns") {
+      return "Rejected by FnS";
+    }
+
+    if (bill.rejected_by_role === "sc") {
+      return "Rejected by SC";
+    }
+
+    return "Rejected";
+  };
+
+  const renderStatusNote = (bill: BillWithRelations) => {
+    if (isSC && bill.fns_comment) {
+      return (
+        <p className="mt-2 text-xs text-muted-foreground">
+          FnS: {bill.fns_comment.body}
+        </p>
+      );
+    }
+
+    if (bill.rejected_by_role === "sc" && bill.sc_rejection_comment) {
+      return (
+        <p className="mt-2 text-xs text-muted-foreground">
+          SC: {bill.sc_rejection_comment.body}
+        </p>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div className="space-y-6">
@@ -537,18 +653,196 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
             </CardContent>
           </Card>
         ) : (
-          bills.map((bill) => (
-            <BillCard
-              key={bill.id}
-              bill={bill}
-              userId={userId}
-              isSC={isSC}
-              onUpdateStatus={handleUpdateStatus}
-              onReject={handleReject}
-              onUndoReject={handleUndoReject}
-              onEdit={handleEdit}
-            />
-          ))
+          <div className="rounded-lg border bg-card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-foreground">
+                  <th className="px-4 py-3 text-left font-medium">
+                    <button
+                      type="button"
+                      onClick={() => setDateSort((current) => (current === "desc" ? "asc" : "desc"))}
+                      className="inline-flex items-center gap-2 rounded-sm text-left font-medium transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      aria-label={`Sort by date ${dateSort === "desc" ? "oldest first" : "newest first"}`}
+                    >
+                      Date
+                      {dateSort === "desc" ? (
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium">Submitted By</th>
+                  <th className="px-4 py-3 text-left font-medium">Vendor</th>
+                  <th className="px-4 py-3 text-left font-medium">Company</th>
+                  <th className="px-4 py-3 text-left font-medium">Category</th>
+                  <th className="px-4 py-3 text-left font-medium">SC</th>
+                  <th className="px-4 py-3 text-right font-medium">Amount</th>
+                  <th className="px-4 py-3 text-center font-medium">Status</th>
+                  <th className="px-4 py-3 text-center font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="text-foreground">
+                {bills.map((bill) => {
+                  const isSubmitter = bill.user_id === userId;
+                  const isAssignedSC = bill.sc_cabinets?.user_id === userId;
+                  const canTakeAction = isSC && !isSubmitter && isAssignedSC;
+                  const isRejected = bill.status === "rejected";
+
+                  return (
+                    <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
+                      <td className="px-4 py-3">{formatDate(bill.date)}</td>
+                      <td className="px-4 py-3">
+                        {bill.submitted_by_role === "fns" ? "FnS" : bill.users?.name}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-primary">{bill.vendors?.name || "Unknown Vendor"}</div>
+                        <div className="text-xs text-muted-foreground">#{bill.bill_number}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {bill.companies?.name || <Badge variant="secondary">General</Badge>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-primary">{bill.categories?.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {bill.subcategories?.name}
+                          {bill.process_type && <span> / {bill.process_type}</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">{bill.sc_cabinets?.name || "-"}</td>
+                      <td className="px-4 py-3 text-right font-medium text-primary">
+                        {formatCurrency(bill.amount)}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <Badge
+                          variant={
+                            bill.status === "reimbursed"
+                              ? "success"
+                              : bill.status === "rejected"
+                              ? "destructive"
+                              : "secondary"
+                          }
+                        >
+                          {getStatusLabel(bill)}
+                        </Badge>
+                        {renderStatusNote(bill)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <TooltipProvider>
+                          <div className="flex items-center justify-center gap-1">
+                            {canTakeAction && (
+                              <>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0"
+                                      onClick={() => handleEdit(bill)}
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Edit bill details</p>
+                                  </TooltipContent>
+                                </Tooltip>
+
+                                {isRejected ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => handleUndoReject(bill.id)}
+                                      >
+                                        <RotateCcw className="h-4 w-4 text-blue-600" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Undo rejection</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => openRejectDialog(bill)}
+                                      >
+                                        <XCircle className="h-4 w-4 text-destructive" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Reject bill</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+
+                                {bill.status === "pending" && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => handleUpdateStatus(bill.id, "physical_received")}
+                                      >
+                                        <CheckCircle2 className="h-4 w-4 text-blue-600" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Mark received</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+
+                                {bill.status === "physical_received" && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => handleUpdateStatus(bill.id, "reimbursed")}
+                                      >
+                                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Mark reimbursed</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </>
+                            )}
+
+                            {bill.file_url && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a href={bill.file_url} target="_blank" rel="noopener noreferrer">
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                      <ExternalLink className="h-4 w-4" />
+                                    </Button>
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>View drive link</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </TooltipProvider>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -672,177 +966,36 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={rejectDialog.open}
+        onOpenChange={(open) => setRejectDialog({ open, bill: open ? rejectDialog.bill : null, comment: open ? rejectDialog.comment : "" })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Bill</DialogTitle>
+            <DialogDescription>
+              Add a reason that will be visible to the JC who submitted this bill.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <Label>Reason</Label>
+            <Textarea
+              value={rejectDialog.comment}
+              onChange={(e) => setRejectDialog({ ...rejectDialog, comment: e.target.value })}
+              placeholder="Explain why this bill is being rejected"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialog({ open: false, bill: null, comment: "" })}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleReject}>
+              Reject Bill
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-interface BillCardProps {
-  bill: BillWithRelations;
-  userId: string;
-  isSC: boolean;
-  onUpdateStatus: (id: string, status: string) => void;
-  onReject: (id: string) => void;
-  onUndoReject: (id: string) => void;
-  onEdit: (bill: BillWithRelations) => void;
-}
-
-function BillCard({ bill, userId, isSC, onUpdateStatus, onReject, onUndoReject, onEdit }: BillCardProps) {
-  const isSubmitter = bill.user_id === userId;
-  const isAssignedSC = bill.sc_cabinets?.user_id === userId;
-  const canTakeAction = isSC && !isSubmitter && isAssignedSC;
-  const isRejected = bill.status === "rejected";
-
-  const statusConfig = {
-    pending: { label: "Pending", color: "text-yellow-600", icon: Clock },
-    physical_received: { label: "Received", color: "text-blue-600", icon: CheckCircle2 },
-    reimbursed: { label: "Reimbursed", color: "text-green-600", icon: CheckCircle2 },
-    rejected: { label: "Rejected", color: "text-red-600", icon: XCircle },
-  };
-
-  const status = statusConfig[bill.status];
-
-  return (
-    <Card className={cn(isRejected && "border-destructive/50")}>
-      <CardContent className="pt-6">
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-          <div className="flex-1 space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-semibold">{bill.vendors?.name || "Unknown Vendor"}</h3>
-              <Badge variant="secondary">{bill.companies?.name || "General"}</Badge>
-              {isRejected && (
-                <Badge variant="destructive">Rejected</Badge>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
-              <span>Date: {formatDate(bill.date)}</span>
-              <span>Bill #: {bill.bill_number}</span>
-              <span>
-                {bill.categories?.name} / {bill.subcategories?.name}
-              </span>
-              {bill.process_type && (
-                <span>Process: {bill.process_type}</span>
-              )}
-            </div>
-
-            <p className="text-sm text-muted-foreground">
-              Submitted by: {bill.submitted_by_role === "fns" ? "FnS" : (bill.users?.name || "Unknown")}
-            </p>
-            {bill.sc_cabinets?.name && (
-              <p className="text-sm text-muted-foreground">
-                SC/Cabinet: {bill.sc_cabinets.name}
-              </p>
-            )}
-
-            {bill.file_url && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={bill.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      View Bill
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>View drive link</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-          </div>
-
-          <div className="flex flex-col items-end gap-2">
-            <div className="text-xl font-bold">{formatCurrency(bill.amount)}</div>
-
-            <div className="flex items-center gap-1">
-              {React.createElement(status.icon, { className: cn("h-4 w-4", status.color) })}
-              <span className={cn("text-sm", status.color)}>{status.label}</span>
-            </div>
-
-            <TooltipProvider>
-              <div className="flex gap-2 mt-4 pt-4 border-t">
-                {canTakeAction && (
-                  <>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => onEdit(bill)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Edit bill details</p>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {isRejected ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => onUndoReject(bill.id)}
-                          >
-                            <RotateCcw className="h-4 w-4 text-blue-600" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Undo rejection</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => onReject(bill.id)}
-                          >
-                            <XCircle className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Reject bill</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-
-                    {bill.status === "pending" && !isRejected && (
-                      <Button
-                        size="sm"
-                        onClick={() => onUpdateStatus(bill.id, "physical_received")}
-                      >
-                        Mark Received
-                      </Button>
-                    )}
-                    {bill.status === "physical_received" && !isRejected && (
-                      <Button
-                        size="sm"
-                        onClick={() => onUpdateStatus(bill.id, "reimbursed")}
-                      >
-                        Mark Reimbursed
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            </TooltipProvider>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-import React from "react";

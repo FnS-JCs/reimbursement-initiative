@@ -85,7 +85,17 @@ export interface Bill {
   process_type: string | null;
   file_url: string | null;
   status: BillStatus;
+  rejected_by_role?: 'sc' | 'fns' | null;
   created_at: string;
+}
+
+export interface BillComment {
+  id: string;
+  bill_id: string;
+  author_role: 'sc' | 'fns';
+  body: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BillWithRelations extends Bill {
@@ -96,6 +106,8 @@ export interface BillWithRelations extends Bill {
   categories?: { name: string };
   subcategories?: { name: string };
   reimbursement_cycles?: { name: string };
+  fns_comment?: BillComment | null;
+  sc_rejection_comment?: BillComment | null;
 }
 
 export interface BillFormData {

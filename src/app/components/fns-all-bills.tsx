@@ -22,7 +22,8 @@ import {
 } from "@/ui/dialog";
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
-import { Bill, Role, BillFilters } from "@/types";
+import { Textarea } from "@/ui/textarea";
+import { Bill, Role, BillFilters, BillComment } from "@/types";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
 import {
@@ -33,6 +34,8 @@ import {
   CheckCircle2,
   XCircle,
   RotateCcw,
+  ArrowDown,
+  ArrowUp,
 } from "lucide-react";
 import {
   Tooltip,
@@ -49,6 +52,8 @@ interface BillWithRelations extends Bill {
   categories?: { name: string };
   subcategories?: { name: string };
   reimbursement_cycles?: { name: string };
+  fns_comment?: BillComment | null;
+  sc_rejection_comment?: BillComment | null;
 }
 
 interface FnSAllBillsProps {
@@ -61,6 +66,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
   const [bills, setBills] = useState<BillWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dateSort, setDateSort] = useState<"desc" | "asc">("desc");
 
   const [filters, setFilters] = useState<BillFilters>({});
 
@@ -87,6 +93,12 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     bill: BillWithRelations | null;
   }>({ open: false, bill: null });
 
+  const [rejectDialog, setRejectDialog] = useState<{
+    open: boolean;
+    bill: BillWithRelations | null;
+    comment: string;
+  }>({ open: false, bill: null, comment: "" });
+
   const [editForm, setEditForm] = useState({
     status: "pending" as Bill["status"],
     amount: "",
@@ -96,6 +108,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     bill_number: "",
     date: "",
     company_id: "" as string | null,
+    fns_comment: "",
   });
 
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
@@ -126,9 +139,8 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           categories:category_id(name),
           subcategories:subcategory_id(name)
         `)
-        .or(`rejected_by_role.is.null,rejected_by_role.eq.fns`)
-        .order("date", { ascending: false })
-        .order("created_at", { ascending: false });
+        .order("date", { ascending: dateSort === "asc" })
+        .order("created_at", { ascending: dateSort === "asc" });
 
       if (filters.sc_id) {
         query = query.eq("sc_id", filters.sc_id);
@@ -166,7 +178,44 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       const { data, error } = await query;
 
       if (error) throw error;
-      setBills(data || []);
+
+      const fetchedBills = data || [];
+      const billIds = fetchedBills.map((bill) => bill.id);
+      let commentsByBill = new Map<string, { fns?: BillComment; sc?: BillComment }>();
+
+      if (billIds.length > 0) {
+        const { data: comments, error: commentsError } = await supabase
+          .from("bill_comments")
+          .select("id, bill_id, author_role, body, created_at, updated_at")
+          .in("bill_id", billIds)
+          .order("created_at", { ascending: false });
+
+        if (commentsError) throw commentsError;
+
+        commentsByBill = (comments || []).reduce((map, comment) => {
+          const typedComment = comment as BillComment;
+          const current = map.get(typedComment.bill_id) || {};
+          if (typedComment.author_role === "fns" && !current.fns) {
+            current.fns = typedComment;
+          }
+          if (typedComment.author_role === "sc" && !current.sc) {
+            current.sc = typedComment;
+          }
+          map.set(typedComment.bill_id, current);
+          return map;
+        }, new Map<string, { fns?: BillComment; sc?: BillComment }>());
+      }
+
+      setBills(
+        fetchedBills.map((bill) => {
+          const comments = commentsByBill.get(bill.id);
+          return {
+            ...bill,
+            fns_comment: comments?.fns || null,
+            sc_rejection_comment: comments?.sc || null,
+          };
+        })
+      );
     } catch (err) {
       toast({
         title: "Error",
@@ -176,7 +225,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     } finally {
       setLoading(false);
     }
-  }, [supabase, filters, toast]);
+  }, [supabase, filters, dateSort, toast]);
 
   const fetchDropdownData = useCallback(async () => {
     const [
@@ -226,6 +275,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       bill_number: bill.bill_number,
       date: bill.date,
       company_id: bill.company_id,
+      fns_comment: bill.fns_comment?.body || "",
     });
     setEditDialog({ open: true, bill });
   };
@@ -234,10 +284,18 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     if (!editDialog.bill) return;
 
     try {
+      const nextStatus = editForm.status;
+      const nextRejectedByRole =
+        nextStatus === "rejected"
+          ? editDialog.bill.status === "rejected"
+            ? editDialog.bill.rejected_by_role || "fns"
+            : "fns"
+          : null;
       const { error } = await supabase
         .from("bills")
         .update({
-          status: editForm.status,
+          status: nextStatus,
+          rejected_by_role: nextRejectedByRole,
           amount: parseFloat(editForm.amount),
           vendor_id: editForm.vendor_id,
           category_id: editForm.category_id,
@@ -249,6 +307,22 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         .eq("id", editDialog.bill.id);
 
       if (error) throw error;
+
+      const trimmedComment = editForm.fns_comment.trim();
+      if (trimmedComment) {
+        const { error: commentError } = await supabase
+          .from("bill_comments")
+          .upsert(
+            {
+              bill_id: editDialog.bill.id,
+              author_role: "fns",
+              body: trimmedComment,
+            },
+            { onConflict: "bill_id,author_role" }
+          );
+
+        if (commentError) throw commentError;
+      }
 
       toast({
         title: "Bill updated",
@@ -266,8 +340,26 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     }
   };
 
-  const handleReject = async (bill: BillWithRelations) => {
-    if (!confirm("Are you sure you want to reject this bill?")) return;
+  const openRejectDialog = (bill: BillWithRelations) => {
+    setRejectDialog({
+      open: true,
+      bill,
+      comment: bill.fns_comment?.body || "",
+    });
+  };
+
+  const handleReject = async () => {
+    if (!rejectDialog.bill) return;
+
+    const trimmedComment = rejectDialog.comment.trim();
+    if (!trimmedComment) {
+      toast({
+        title: "Comment required",
+        description: "Add a comment before rejecting this bill.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       const { error } = await supabase
@@ -276,15 +368,29 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           status: "rejected",
           rejected_by_role: "fns"
         })
-        .eq("id", bill.id);
+        .eq("id", rejectDialog.bill.id);
 
       if (error) throw error;
+
+      const { error: commentError } = await supabase
+        .from("bill_comments")
+        .upsert(
+          {
+            bill_id: rejectDialog.bill.id,
+            author_role: "fns",
+            body: trimmedComment,
+          },
+          { onConflict: "bill_id,author_role" }
+        );
+
+      if (commentError) throw commentError;
 
       toast({
         title: "Bill rejected",
         description: "The bill has been rejected successfully",
       });
 
+      setRejectDialog({ open: false, bill: null, comment: "" });
       fetchBills();
     } catch (err: any) {
       toast({
@@ -337,6 +443,22 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     physical_received: { label: "Received", color: "text-blue-600", icon: CheckCircle2 },
     reimbursed: { label: "Reimbursed", color: "text-green-600", icon: CheckCircle2 },
     rejected: { label: "Rejected", color: "text-red-600", icon: XCircle },
+  };
+
+  const getStatusLabel = (bill: BillWithRelations) => {
+    if (bill.status !== "rejected") {
+      return statusConfig[bill.status].label;
+    }
+
+    if (bill.rejected_by_role === "fns") {
+      return "Rejected by FnS";
+    }
+
+    if (bill.rejected_by_role === "sc") {
+      return "Rejected by SC";
+    }
+
+    return "Rejected";
   };
 
   return (
@@ -500,7 +622,21 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-foreground">
-                  <th className="px-4 py-3 text-left font-medium">Date</th>
+                  <th className="px-4 py-3 text-left font-medium">
+                    <button
+                      type="button"
+                      onClick={() => setDateSort((current) => (current === "desc" ? "asc" : "desc"))}
+                      className="inline-flex items-center gap-2 rounded-sm text-left font-medium transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      aria-label={`Sort by date ${dateSort === "desc" ? "oldest first" : "newest first"}`}
+                    >
+                      Date
+                      {dateSort === "desc" ? (
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </th>
                   <th className="px-4 py-3 text-left font-medium">Submitted By</th>
                   <th className="px-4 py-3 text-left font-medium">Vendor</th>
                   <th className="px-4 py-3 text-left font-medium">Company</th>
@@ -549,8 +685,18 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                               : "secondary"
                           }
                         >
-                          {status.label}
+                          {getStatusLabel(bill)}
                         </Badge>
+                        {bill.rejected_by_role === "fns" && bill.fns_comment && (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            FnS: {bill.fns_comment.body}
+                          </p>
+                        )}
+                        {bill.rejected_by_role === "sc" && bill.sc_rejection_comment && (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            SC: {bill.sc_rejection_comment.body}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <TooltipProvider>
@@ -594,7 +740,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                                     variant="ghost"
                                     size="sm"
                                     className="h-8 w-8 p-0"
-                                    onClick={() => handleReject(bill)}
+                                    onClick={() => openRejectDialog(bill)}
                                   >
                                     <XCircle className="h-4 w-4 text-destructive" />
                                   </Button>
@@ -761,12 +907,51 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                 </Select>
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label>FnS Comment</Label>
+              <Textarea
+                value={editForm.fns_comment}
+                onChange={(e) => setEditForm({ ...editForm, fns_comment: e.target.value })}
+                placeholder="Add a note visible to the relevant SC when this bill is rejected by FnS"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialog({ open: false, bill: null })}>
               Cancel
             </Button>
             <Button onClick={handleSaveEdit}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={rejectDialog.open}
+        onOpenChange={(open) => setRejectDialog({ open, bill: open ? rejectDialog.bill : null, comment: open ? rejectDialog.comment : "" })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Bill</DialogTitle>
+            <DialogDescription>
+              Add a comment for the relevant SC before rejecting this bill.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <Label>FnS Comment</Label>
+            <Textarea
+              value={rejectDialog.comment}
+              onChange={(e) => setRejectDialog({ ...rejectDialog, comment: e.target.value })}
+              placeholder="Explain why this bill is being rejected"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialog({ open: false, bill: null, comment: "" })}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleReject}>
+              Reject Bill
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
