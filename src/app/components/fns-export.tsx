@@ -57,6 +57,7 @@ export function FnSExport() {
     status: "reimbursed",
   });
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [splitBySC, setSplitBySC] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<string[]>(
     EXPORT_COLUMNS.filter((c) => c.default).map((c) => c.id)
   );
@@ -157,6 +158,8 @@ export function FnSExport() {
   }, [fetchBills]);
 
   const handleColumnToggle = (columnId: string) => {
+    if (columnId === "amount") return;
+
     setSelectedColumns((prev) =>
       prev.includes(columnId)
         ? prev.filter((c) => c !== columnId)
@@ -164,13 +167,43 @@ export function FnSExport() {
     );
   };
 
+  const getActiveColumns = () => {
+    const selected = selectedColumns.includes("amount")
+      ? selectedColumns
+      : [...selectedColumns, "amount"];
+
+    return EXPORT_COLUMNS.filter((column) => selected.includes(column.id));
+  };
+
+  const sanitizeSheetName = (name: string) => {
+    const sanitized = name.replace(/[\\/?*[\]:]/g, " ").trim() || "Unnamed SC";
+    return sanitized.slice(0, 31);
+  };
+
+  const getUniqueSheetName = (baseName: string, existingNames: Set<string>) => {
+    const sanitizedBase = sanitizeSheetName(baseName);
+    let sheetName = sanitizedBase;
+    let counter = 2;
+
+    while (existingNames.has(sheetName)) {
+      const suffix = ` ${counter}`;
+      sheetName = `${sanitizedBase.slice(0, 31 - suffix.length)}${suffix}`;
+      counter += 1;
+    }
+
+    existingNames.add(sheetName);
+    return sheetName;
+  };
+
   const handleExport = () => {
     setExporting(true);
 
     try {
+      const activeColumns = getActiveColumns();
+      const amountColumnIndex = activeColumns.findIndex((column) => column.id === "amount");
       const headerOrder = [
-        "Serial No.", "Date", "SC Name", "Category", "Sub-Category", 
-        "Bill Number", "Drive Link", "Company Name", "Process Type", 
+        "Serial No.", "Date", "SC Name", "Category", "Sub-Category",
+        "Bill Number", "Drive Link", "Company Name", "Process Type",
         "Vendor", "Amount (INR)", "Submitted By", "Status"
       ];
 
@@ -195,6 +228,54 @@ export function FnSExport() {
           bottom: { style: "thin", color: { rgb: "000000" } },
           left: { style: "thin", color: { rgb: "000000" } },
           right: { style: "thin", color: { rgb: "000000" } }
+        }
+      };
+
+      const totalStyle = {
+        ...dataStyle,
+        font: { ...dataStyle.font, bold: true },
+        fill: { fgColor: { rgb: "EAF0F8" } },
+      };
+
+      const currencyStyle = { ...dataStyle, z: '"INR "#,##0.00' };
+      const totalCurrencyStyle = { ...totalStyle, z: '"INR "#,##0.00' };
+
+      const getCellForColumn = (bill: BillWithRelations, index: number, columnId: string) => {
+        switch (columnId) {
+          case "serial":
+            return { v: index + 1, s: dataStyle };
+          case "date":
+            return { v: new Date(bill.date), s: { ...dataStyle, z: "dd/mm/yyyy" } };
+          case "bill_number":
+            return { v: bill.bill_number, s: dataStyle };
+          case "category":
+            return { v: bill.categories?.name || "", s: dataStyle };
+          case "subcategory":
+            return { v: bill.subcategories?.name || "", s: dataStyle };
+          case "sc_name":
+            return { v: bill.sc_cabinets?.name || "-", s: dataStyle };
+          case "company":
+            return { v: bill.companies?.name || "General", s: dataStyle };
+          case "process_type":
+            return { v: bill.process_type || "-", s: dataStyle };
+          case "vendor":
+            return { v: bill.vendors?.name || "", s: dataStyle };
+          case "amount":
+            return { v: bill.amount, s: currencyStyle };
+          case "file_url":
+            return {
+              v: bill.file_url ? "Link" : "No link",
+              s: bill.file_url
+                ? { ...dataStyle, font: { ...dataStyle.font, color: { rgb: "0563C1" }, underline: true } }
+                : dataStyle,
+              l: bill.file_url ? { Target: bill.file_url, Tooltip: "Open link" } : undefined,
+            };
+          case "submitted_by":
+            return { v: bill.submitted_by_role === "fns" ? "FnS" : (bill.users?.name || ""), s: dataStyle };
+          case "status":
+            return { v: bill.status, s: dataStyle };
+          default:
+            return { v: "", s: dataStyle };
         }
       };
 
@@ -224,6 +305,22 @@ export function FnSExport() {
         rows.push(row);
       });
 
+      rows.push([
+        { v: "", s: totalStyle },
+        { v: "", s: totalStyle },
+        { v: "", s: totalStyle },
+        { v: "", s: totalStyle },
+        { v: "", s: totalStyle },
+        { v: "", s: totalStyle },
+        { v: "", s: totalStyle },
+        { v: "", s: totalStyle },
+        { v: "", s: totalStyle },
+        { v: "Total", s: totalStyle },
+        { v: bills.reduce((sum, bill) => sum + bill.amount, 0), s: totalCurrencyStyle },
+        { v: "", s: totalStyle },
+        { v: "", s: totalStyle },
+      ]);
+
       const ws = XLSX.utils.aoa_to_sheet(rows);
 
       // Set column widths
@@ -246,15 +343,75 @@ export function FnSExport() {
       // Hide gridlines
       ws["!views"] = [{ showGridLines: false }];
 
+      const buildWorksheet = (sheetBills: BillWithRelations[]) => {
+        const sheetRows: any[][] = [
+          activeColumns.map((column) => ({ v: column.label, s: headerStyle })),
+        ];
+
+        sheetBills.forEach((bill, index) => {
+          sheetRows.push(activeColumns.map((column) => getCellForColumn(bill, index, column.id)));
+        });
+
+        sheetRows.push(activeColumns.map((column, index) => {
+          if (index === Math.max(0, amountColumnIndex - 1)) {
+            return { v: "Total", s: totalStyle };
+          }
+
+          if (column.id === "amount") {
+            return {
+              v: sheetBills.reduce((sum, bill) => sum + bill.amount, 0),
+              s: totalCurrencyStyle,
+            };
+          }
+
+          return { v: "", s: totalStyle };
+        }));
+
+        const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
+        worksheet["!cols"] = activeColumns.map((column) => {
+          if (column.id === "serial") return { wch: 10 };
+          if (column.id === "date") return { wch: 12 };
+          if (column.id === "amount") return { wch: 15 };
+          if (column.id === "file_url") return { wch: 10 };
+          if (column.id === "status") return { wch: 14 };
+          return { wch: 20 };
+        });
+        worksheet["!views"] = [{ showGridLines: false }];
+
+        return worksheet;
+      };
+
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Bills");
+      const sheetNames = new Set<string>();
+
+      XLSX.utils.book_append_sheet(wb, ws, getUniqueSheetName("Bills", sheetNames));
+
+      if (splitBySC) {
+        const billsBySC = bills.reduce((groups, bill) => {
+          const scName = bill.sc_cabinets?.name || "Unassigned SC";
+          const current = groups.get(scName) || [];
+          current.push(bill);
+          groups.set(scName, current);
+          return groups;
+        }, new Map<string, BillWithRelations[]>());
+
+        Array.from(billsBySC.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .forEach(([scName, scBills]) => {
+            XLSX.utils.book_append_sheet(
+              wb,
+              buildWorksheet(scBills),
+              getUniqueSheetName(scName, sheetNames)
+            );
+          });
+      }
 
       const fileName = `reimbursement-report-${new Date().toISOString().split("T")[0]}.xlsx`;
       XLSX.writeFile(wb, fileName);
 
       toast({
         title: "Export successful",
-        description: `Exported ${bills.length} bills to ${fileName}`,
+        description: `Exported ${bills.length} bills${splitBySC ? " with SC-wise sheets" : ""} to ${fileName}`,
       });
     } catch (err) {
       console.error("Export error:", err);
@@ -427,22 +584,39 @@ export function FnSExport() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Columns</CardTitle>
-          <CardDescription>Select columns to include in export</CardDescription>
+          <CardDescription>Select columns and worksheet options for export</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-4">
-            {EXPORT_COLUMNS.map((col) => (
-              <div key={col.id} className="flex items-center gap-2">
-                <Checkbox
-                  id={`col-${col.id}`}
-                  checked={selectedColumns.includes(col.id)}
-                  onCheckedChange={() => handleColumnToggle(col.id)}
-                />
-                <Label htmlFor={`col-${col.id}`} className="cursor-pointer">
-                  {col.label}
-                </Label>
-              </div>
-            ))}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="split-by-sc"
+                checked={splitBySC}
+                onCheckedChange={(checked) => setSplitBySC(checked === true)}
+              />
+              <Label htmlFor="split-by-sc" className="cursor-pointer">
+                Add separate sheets for each SC
+              </Label>
+            </div>
+
+            <div className="flex flex-wrap gap-4">
+              {EXPORT_COLUMNS.map((col) => (
+                <div key={col.id} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`col-${col.id}`}
+                    checked={selectedColumns.includes(col.id)}
+                    disabled={col.id === "amount"}
+                    onCheckedChange={() => handleColumnToggle(col.id)}
+                  />
+                  <Label htmlFor={`col-${col.id}`} className="cursor-pointer">
+                    {col.label}
+                  </Label>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Amount is always included so every exported sheet can show a total.
+            </p>
           </div>
         </CardContent>
       </Card>
