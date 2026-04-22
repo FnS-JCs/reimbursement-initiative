@@ -195,6 +195,11 @@ export function FnSExport() {
     return sheetName;
   };
 
+  const formatExportDate = (date: string) => {
+    const [year, month, day] = date.split("-");
+    return `${day}/${month}/${year}`;
+  };
+
   const handleExport = () => {
     setExporting(true);
 
@@ -245,7 +250,7 @@ export function FnSExport() {
           case "serial":
             return { v: index + 1, s: dataStyle };
           case "date":
-            return { v: new Date(bill.date), s: { ...dataStyle, z: "dd/mm/yyyy" } };
+            return { v: formatExportDate(bill.date), s: dataStyle };
           case "bill_number":
             return { v: bill.bill_number, s: dataStyle };
           case "category":
@@ -285,7 +290,7 @@ export function FnSExport() {
       bills.forEach((bill, index) => {
         const row = [
           { v: index + 1, s: dataStyle },
-          { v: new Date(bill.date), s: { ...dataStyle, z: "dd/mm/yyyy" } },
+          { v: formatExportDate(bill.date), s: dataStyle },
           { v: bill.sc_cabinets?.name || "-", s: dataStyle },
           { v: bill.categories?.name || "", s: dataStyle },
           { v: bill.subcategories?.name || "", s: dataStyle },
