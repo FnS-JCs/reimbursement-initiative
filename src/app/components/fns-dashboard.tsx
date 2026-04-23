@@ -29,7 +29,7 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900/50">
+    <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 w-full border-b bg-primary dark:bg-gray-900/95 dark:border-gray-800">
         <div className="container mx-auto flex h-14 items-center justify-between px-4">
           <div className="flex items-center gap-4">
