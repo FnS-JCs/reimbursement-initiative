@@ -43,8 +43,8 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
                 priority
               />
               <div className="flex flex-col">
-                <span className="text-sm font-semibold text-white">Reimbursement Portal</span>
-                <span className="text-xs text-blue-100">Finance & Strategy</span>
+                <span className="text-sm font-semibold text-primary-foreground">Reimbursement Portal</span>
+                <span className="text-xs text-primary-foreground/80">Finance & Strategy</span>
               </div>
             </div>
           </div>
@@ -53,7 +53,7 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
             <ThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-2 text-white hover:bg-white/20">
+                <Button variant="ghost" size="sm" className="gap-2 text-primary-foreground hover:bg-white/20 hover:text-primary-foreground">
                   <UserIcon className="h-4 w-4" />
                   <span className="hidden md:inline">Account</span>
                   <ChevronDown className="h-3 w-3" />

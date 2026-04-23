@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import {
@@ -22,7 +21,6 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ user }: DashboardHeaderProps) {
-  const router = useRouter();
   const supabase = createClient();
 
   const handleLogout = async () => {
@@ -46,8 +44,8 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
             priority
           />
           <div className="flex flex-col">
-            <span className="text-sm font-semibold text-white">Reimbursement Portal</span>
-            <span className="text-xs text-blue-100">{roleLabel}</span>
+            <span className="text-sm font-semibold text-primary-foreground">Reimbursement Portal</span>
+            <span className="text-xs text-primary-foreground/80">{roleLabel}</span>
           </div>
         </div>
 
@@ -55,7 +53,7 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
           <ThemeToggle />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-2 text-white hover:bg-white/20">
+              <Button variant="ghost" size="sm" className="gap-2 text-primary-foreground hover:bg-white/20 hover:text-primary-foreground">
                 <UserIcon className="h-4 w-4" />
                 <span className="hidden md:inline">{user.name}</span>
                 <Menu className="h-4 w-4" />
