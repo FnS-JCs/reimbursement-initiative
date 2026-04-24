@@ -32,7 +32,7 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
     normalizeRole(user.role) === "sc" ? "Senior Coordinator" : "Junior Coordinator";
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b bg-primary dark:bg-gray-900/95 dark:border-gray-800">
+    <header className="sticky top-0 z-40 mb-6 w-full rounded-xl border border-border bg-muted/70 shadow-sm backdrop-blur-sm dark:bg-muted/60">
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
         <div className="flex items-center gap-2">
           <Image 
@@ -44,8 +44,8 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
             priority
           />
           <div className="flex flex-col">
-            <span className="text-sm font-semibold text-primary-foreground">Reimbursement Portal</span>
-            <span className="text-xs text-primary-foreground/80">{roleLabel}</span>
+            <span className="text-sm font-semibold text-foreground">Reimbursement Portal</span>
+            <span className="text-xs text-muted-foreground">{roleLabel}</span>
           </div>
         </div>
 
@@ -53,7 +53,7 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
           <ThemeToggle />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-2 text-primary-foreground hover:bg-white/20 hover:text-primary-foreground">
+              <Button variant="ghost" size="sm" className="gap-2 text-foreground hover:bg-muted hover:text-foreground">
                 <UserIcon className="h-4 w-4" />
                 <span className="hidden md:inline">{user.name}</span>
                 <Menu className="h-4 w-4" />

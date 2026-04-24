@@ -5,7 +5,7 @@ import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card";
+import { Card, CardContent } from "@/ui/card";
 import { Badge } from "@/ui/badge";
 import {
   Dialog,
@@ -17,7 +17,7 @@ import {
 } from "@/ui/dialog";
 import { ReimbursementCycle } from "@/types";
 import { useToast } from "@/lib/use-toast";
-import { Plus, Edit, Loader2, Calendar } from "lucide-react";
+import { Plus, Edit, Loader2, Calendar, Trash2 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
 export function FnSCycles() {
@@ -35,6 +35,10 @@ export function FnSCycles() {
   const [closeDialog, setCloseDialog] = useState<{ open: boolean; cycleId: string | null }>({
     open: false,
     cycleId: null,
+  });
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; cycle: ReimbursementCycle | null }>({
+    open: false,
+    cycle: null,
   });
 
   const [addForm, setAddForm] = useState({
@@ -59,7 +63,7 @@ export function FnSCycles() {
 
       if (error) throw error;
       setCycles(data || []);
-    } catch (err) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to fetch cycles",
@@ -104,10 +108,11 @@ export function FnSCycles() {
       setAddDialog(false);
       setAddForm({ name: "", start_date: new Date().toISOString().split('T')[0], end_date: "" });
       fetchCycles();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to create cycle";
       toast({
         title: "Error",
-        description: err.message || "Failed to create cycle",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -138,10 +143,11 @@ export function FnSCycles() {
 
       setEditDialog({ open: false, cycle: null });
       fetchCycles();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to update cycle";
       toast({
         title: "Error",
-        description: err.message || "Failed to update cycle",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -168,10 +174,11 @@ export function FnSCycles() {
       });
 
       fetchCycles();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to activate cycle";
       toast({
         title: "Error",
-        description: err.message || "Failed to activate cycle",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -196,10 +203,52 @@ export function FnSCycles() {
 
       setCloseDialog({ open: false, cycleId: null });
       fetchCycles();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to close cycle";
       toast({
         title: "Error",
-        description: err.message || "Failed to close cycle",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteDialog.cycle) return;
+
+    setSubmitting(true);
+    try {
+      const response = await fetch(`/api/fns/cycles/${deleteDialog.cycle.id}`, {
+        method: "DELETE",
+      });
+
+      const payload = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to delete cycle");
+      }
+
+      toast({
+        title: "Cycle deleted",
+        description: "The cycle has been deleted successfully",
+      });
+
+      setDeleteDialog({ open: false, cycle: null });
+      fetchCycles();
+    } catch (err: unknown) {
+      let message = "Failed to delete cycle";
+
+      if (err && typeof err === "object" && "message" in err && typeof err.message === "string") {
+        message = err.message;
+      } else if (err instanceof Error) {
+        message = err.message;
+      }
+
+      toast({
+        title: "Error",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -291,8 +340,17 @@ export function FnSCycles() {
                       variant="ghost"
                       size="sm"
                       onClick={() => openEditDialog(cycle)}
+                      disabled={submitting}
                     >
                       <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDeleteDialog({ open: true, cycle })}
+                      disabled={submitting}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
                 </div>
@@ -430,6 +488,32 @@ export function FnSCycles() {
             <Button variant="destructive" onClick={handleClose} disabled={submitting}>
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Close Cycle
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteDialog.open}
+        onOpenChange={(open) => setDeleteDialog({ open, cycle: open ? deleteDialog.cycle : null })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Cycle</DialogTitle>
+            <DialogDescription>
+              {`Delete "${deleteDialog.cycle?.name}" permanently. This only works if no bills are assigned to the cycle.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialog({ open: false, cycle: null })}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete Cycle
             </Button>
           </DialogFooter>
         </DialogContent>

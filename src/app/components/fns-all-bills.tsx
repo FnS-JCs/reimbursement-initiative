@@ -6,6 +6,14 @@ import { Button } from "@/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
 import { Badge } from "@/ui/badge";
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -24,7 +32,7 @@ import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
 import { Textarea } from "@/ui/textarea";
 import { Bill, Role, BillFilters, BillComment } from "@/types";
-import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
 import {
   FileText,
@@ -36,6 +44,7 @@ import {
   RotateCcw,
   ArrowDown,
   ArrowUp,
+  ChevronDown,
 } from "lucide-react";
 import {
   Tooltip,
@@ -58,6 +67,80 @@ interface BillWithRelations extends Bill {
 
 interface FnSAllBillsProps {
   refreshKey?: number;
+}
+
+interface MultiSelectFilterProps {
+  label: string;
+  placeholder: string;
+  options: { value: string; label: string }[];
+  selectedValues: string[];
+  onChange: (values: string[]) => void;
+}
+
+function MultiSelectFilter({
+  label,
+  placeholder,
+  options,
+  selectedValues,
+  onChange,
+}: MultiSelectFilterProps) {
+  const summary = useMemo(() => {
+    if (selectedValues.length === 0) {
+      return placeholder;
+    }
+
+    if (selectedValues.length === 1) {
+      return options.find((option) => option.value === selectedValues[0])?.label ?? placeholder;
+    }
+
+    return `${selectedValues.length} selected`;
+  }, [options, placeholder, selectedValues]);
+
+  const toggleValue = (value: string) => {
+    onChange(
+      selectedValues.includes(value)
+        ? selectedValues.filter((selectedValue) => selectedValue !== value)
+        : [...selectedValues, value]
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="outline" className="w-full justify-between font-normal">
+            <span className="truncate">{summary}</span>
+            <ChevronDown className="h-4 w-4 opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-56">
+          <DropdownMenuLabel className="flex items-center justify-between gap-2">
+            <span>{label}</span>
+            {selectedValues.length > 0 ? (
+              <button
+                type="button"
+                className="text-xs font-medium text-primary"
+                onClick={() => onChange([])}
+              >
+                Clear
+              </button>
+            ) : null}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {options.map((option) => (
+            <DropdownMenuCheckboxItem
+              key={option.value}
+              checked={selectedValues.includes(option.value)}
+              onCheckedChange={() => toggleValue(option.value)}
+            >
+              {option.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
 }
 
 export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
@@ -142,7 +225,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         .order("date", { ascending: dateSort === "asc" })
         .order("created_at", { ascending: dateSort === "asc" });
 
-      if (filters.sc_id) {
+      if (filters.sc_ids && filters.sc_ids.length > 0) {
+        query = query.in("sc_id", filters.sc_ids);
+      } else if (filters.sc_id) {
         query = query.eq("sc_id", filters.sc_id);
       }
 
@@ -154,11 +239,15 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         query = query.eq("category_id", filters.category_id);
       }
 
-      if (filters.status && filters.status !== "all") {
+      if (filters.statuses && filters.statuses.length > 0) {
+        query = query.in("status", filters.statuses);
+      } else if (filters.status && filters.status !== "all") {
         query = query.eq("status", filters.status);
       }
 
-      if (filters.cycle_id && filters.cycle_id !== "all") {
+      if (filters.cycle_ids && filters.cycle_ids.length > 0) {
+        // Cycle ranges may overlap, so we apply them client-side after fetching.
+      } else if (filters.cycle_id && filters.cycle_id !== "all") {
         const selectedCycle = dropdownData.cycles.find(c => c.id === filters.cycle_id);
         if (selectedCycle) {
           query = query.gte("date", selectedCycle.start_date);
@@ -179,7 +268,19 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
       if (error) throw error;
 
-      const fetchedBills = data || [];
+      let fetchedBills = data || [];
+
+      if (filters.cycle_ids && filters.cycle_ids.length > 0) {
+        const selectedCycles = dropdownData.cycles.filter((cycle) => filters.cycle_ids?.includes(cycle.id));
+        fetchedBills = fetchedBills.filter((bill) =>
+          selectedCycles.some((cycle) => {
+            const startsInRange = bill.date >= cycle.start_date;
+            const endsInRange = cycle.end_date ? bill.date <= cycle.end_date : true;
+            return startsInRange && endsInRange;
+          })
+        );
+      }
+
       const billIds = fetchedBills.map((bill) => bill.id);
       let commentsByBill = new Map<string, { fns?: BillComment; sc?: BillComment }>();
 
@@ -216,7 +317,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           };
         })
       );
-    } catch (err) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to fetch bills",
@@ -225,7 +326,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     } finally {
       setLoading(false);
     }
-  }, [supabase, filters, dateSort, toast]);
+  }, [supabase, filters, dateSort, toast, dropdownData.cycles]);
 
   const fetchDropdownData = useCallback(async () => {
     const [
@@ -331,7 +432,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
       setEditDialog({ open: false, bill: null });
       fetchBills();
-    } catch (err) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to update bill",
@@ -392,10 +493,11 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
       setRejectDialog({ open: false, bill: null, comment: "" });
       fetchBills();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to reject bill";
       toast({
         title: "Error",
-        description: err.message || "Failed to reject bill",
+        description: message,
         variant: "destructive",
       });
     }
@@ -419,10 +521,11 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       });
 
       fetchBills();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to undo rejection";
       toast({
         title: "Error",
-        description: err.message || "Failed to undo rejection",
+        description: message,
         variant: "destructive",
       });
     }
@@ -460,6 +563,26 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
     return "Rejected";
   };
+
+  const scFilterOptions = useMemo(
+    () => dropdownData.scUsers.map((sc) => ({ value: sc.id, label: sc.name })),
+    [dropdownData.scUsers]
+  );
+
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: "pending", label: "Pending" },
+      { value: "physical_received", label: "Received" },
+      { value: "reimbursed", label: "Reimbursed" },
+      { value: "rejected", label: "Rejected" },
+    ],
+    []
+  );
+
+  const cycleFilterOptions = useMemo(
+    () => dropdownData.cycles.map((cycle) => ({ value: cycle.id, label: cycle.name })),
+    [dropdownData.cycles]
+  );
 
   return (
     <div className="space-y-6">
@@ -509,67 +632,49 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-5 bg-muted/50 p-4 rounded-lg">
-            <div className="space-y-2">
-              <Label>SC Cabinet</Label>
-              <Select
-                value={filters.sc_id || "all"}
-                onValueChange={(v) => setFilters({ ...filters, sc_id: v === "all" ? undefined : v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All Cabinets" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Cabinets</SelectItem>
-                  {dropdownData.scUsers.map((sc) => (
-                    <SelectItem key={sc.id} value={sc.id}>{sc.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <MultiSelectFilter
+              label="SC Cabinet"
+              placeholder="All Cabinets"
+              options={scFilterOptions}
+              selectedValues={filters.sc_ids || []}
+              onChange={(values) =>
+                setFilters({
+                  ...filters,
+                  sc_ids: values.length > 0 ? values : undefined,
+                  sc_id: undefined,
+                })
+              }
+            />
 
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select
-                value={filters.status || "all"}
-                onValueChange={(v) => setFilters({ ...filters, status: v === "all" ? undefined : v as any })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="physical_received">Received</SelectItem>
-                  <SelectItem value="reimbursed">Reimbursed</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <MultiSelectFilter
+              label="Status"
+              placeholder="All Status"
+              options={statusFilterOptions}
+              selectedValues={filters.statuses || []}
+              onChange={(values) =>
+                setFilters({
+                  ...filters,
+                  statuses: values.length > 0 ? (values as Bill["status"][]) : undefined,
+                  status: undefined,
+                })
+              }
+            />
 
-            <div className="space-y-2">
-              <Label>Cycle</Label>
-              <Select
-                value={filters.cycle_id || "all"}
-                onValueChange={(v) =>
-                  setFilters({ 
-                    ...filters, 
-                    cycle_id: v === "all" ? undefined : v,
-                    date_from: undefined,
-                    date_to: undefined
-                  })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All Cycles" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Cycles</SelectItem>
-                  {dropdownData.cycles.map((cycle) => (
-                    <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <MultiSelectFilter
+              label="Cycle"
+              placeholder="All Cycles"
+              options={cycleFilterOptions}
+              selectedValues={filters.cycle_ids || []}
+              onChange={(values) =>
+                setFilters({
+                  ...filters,
+                  cycle_ids: values.length > 0 ? values : undefined,
+                  cycle_id: undefined,
+                  date_from: undefined,
+                  date_to: undefined,
+                })
+              }
+            />
 
             <div className="space-y-2">
           <Label>From Date</Label>
@@ -580,7 +685,8 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
               setFilters({ 
                 ...filters, 
                 date_from: e.target.value || undefined,
-                cycle_id: undefined
+                cycle_id: undefined,
+                cycle_ids: undefined
               })
             }
           />
@@ -595,7 +701,8 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
               setFilters({ 
                 ...filters, 
                 date_to: e.target.value || undefined,
-                cycle_id: undefined
+                cycle_id: undefined,
+                cycle_ids: undefined
               })
             }
           />
@@ -649,7 +756,6 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
               </thead>
               <tbody className="text-foreground">
                 {bills.map((bill) => {
-                  const status = statusConfig[bill.status];
                   return (
                     <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
                       <td className="px-4 py-3">{formatDate(bill.date)}</td>

@@ -128,10 +128,13 @@ export interface BillFilters {
   submitted_by_filter?: 'jcs' | 'myself' | 'all';
   bill_type?: 'company' | 'general' | 'all';
   status?: BillStatus | 'all';
+  statuses?: BillStatus[];
   company_id?: string;
   category_id?: string;
   sc_id?: string;
+  sc_ids?: string[];
   cycle_id?: string;
+  cycle_ids?: string[];
   date_from?: string;
   date_to?: string;
 }
