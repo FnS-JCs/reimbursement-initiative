@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
-import { Badge } from "@/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -34,11 +33,11 @@ import { Textarea } from "@/ui/textarea";
 import { Bill, Role, BillFilters, BillComment } from "@/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
+import { DriveLinkPreview } from "./drive-link-preview";
 import {
   FileText,
   Edit,
   Loader2,
-  ExternalLink,
   CheckCircle2,
   XCircle,
   RotateCcw,
@@ -542,10 +541,10 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     .reduce((sum, b) => sum + b.amount, 0);
 
   const statusConfig = {
-    pending: { label: "Pending", color: "text-yellow-600", icon: XCircle },
-    physical_received: { label: "Received", color: "text-blue-600", icon: CheckCircle2 },
-    reimbursed: { label: "Reimbursed", color: "text-green-600", icon: CheckCircle2 },
-    rejected: { label: "Rejected", color: "text-red-600", icon: XCircle },
+    pending: { label: "Pending", className: "text-muted-foreground" },
+    physical_received: { label: "Received", className: "text-blue-600" },
+    reimbursed: { label: "Reimbursed", className: "text-green-600" },
+    rejected: { label: "Rejected", className: "text-destructive" },
   };
 
   const getStatusLabel = (bill: BillWithRelations) => {
@@ -562,6 +561,14 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     }
 
     return "Rejected";
+  };
+
+  const getStatusClassName = (bill: BillWithRelations) => {
+    if (bill.status !== "rejected") {
+      return statusConfig[bill.status].className;
+    }
+
+    return "text-destructive";
   };
 
   const scFilterOptions = useMemo(
@@ -769,7 +776,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        {bill.companies?.name || <Badge variant="secondary">General</Badge>}
+                        {bill.companies?.name || <span className="text-muted-foreground">General</span>}
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-primary">{bill.categories?.name}</div>
@@ -782,17 +789,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                         {formatCurrency(bill.amount)}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <Badge
-                          variant={
-                            bill.status === "reimbursed"
-                              ? "success"
-                              : bill.status === "rejected"
-                              ? "destructive"
-                              : "secondary"
-                          }
-                        >
+                        <span className={`font-medium ${getStatusClassName(bill)}`}>
                           {getStatusLabel(bill)}
-                        </Badge>
+                        </span>
                         {bill.rejected_by_role === "fns" && bill.fns_comment && (
                           <p className="mt-2 text-xs text-muted-foreground">
                             FnS: {bill.fns_comment.body}
@@ -857,20 +856,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                               </Tooltip>
                             )}
 
-                            {bill.file_url && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <a href={bill.file_url} target="_blank" rel="noopener noreferrer">
-                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                      <ExternalLink className="h-4 w-4" />
-                                    </Button>
-                                  </a>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>View drive link</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
+                            {bill.file_url && <DriveLinkPreview fileUrl={bill.file_url} />}
                           </div>
                         </TooltipProvider>
                       </td>

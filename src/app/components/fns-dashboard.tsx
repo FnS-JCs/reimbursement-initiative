@@ -67,7 +67,7 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="text-destructive cursor-pointer dark:text-white">
+                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
                   Log out
                 </DropdownMenuItem>
