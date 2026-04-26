@@ -36,6 +36,7 @@ import {
   RotateCcw,
   ArrowDown,
   ArrowUp,
+  Trash2,
 } from "lucide-react";
 import {
   Tooltip,
@@ -98,6 +99,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   });
 
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
+  const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
 
   const [dropdownData, setDropdownData] = useState<{
     companies: { id: string; name: string }[];
@@ -273,7 +275,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   useEffect(() => {
     fetchBills();
-  }, [fetchBills]);
+  }, [fetchBills, refreshKey]);
 
   useEffect(() => {
     if (isSC) {
@@ -440,6 +442,43 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         description: err.message || "Failed to undo rejection",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleDeleteBill = async (bill: BillWithRelations) => {
+    const confirmed = window.confirm(`Delete bill #${bill.bill_number}? This cannot be undone.`);
+
+    if (!confirmed) return;
+
+    setDeletingBillId(bill.id);
+
+    try {
+      const response = await fetch("/api/bills/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ billId: bill.id }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to delete bill");
+      }
+
+      setBills((prev) => prev.filter((currentBill) => currentBill.id !== bill.id));
+      toast({
+        title: "Bill deleted",
+        description: "Your submitted bill has been deleted.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to delete bill",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingBillId(null);
     }
   };
 
@@ -687,6 +726,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   const isSubmitter = bill.user_id === userId;
                   const isAssignedSC = bill.sc_cabinets?.user_id === userId;
                   const canTakeAction = isSC && !isSubmitter && isAssignedSC;
+                  const canDeleteOwnBill = isSubmitter;
                   const isRejected = bill.status === "rejected";
 
                   return (
@@ -818,6 +858,29 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                                   </Tooltip>
                                 )}
                               </>
+                            )}
+
+                            {canDeleteOwnBill && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => handleDeleteBill(bill)}
+                                    disabled={deletingBillId === bill.id}
+                                  >
+                                    {deletingBillId === bill.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin text-destructive" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Delete your bill</p>
+                                </TooltipContent>
+                              </Tooltip>
                             )}
 
                             {bill.file_url && (

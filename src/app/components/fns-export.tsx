@@ -66,7 +66,7 @@ export function FnSExport() {
     companies: { id: string; name: string }[];
     categories: { id: string; name: string }[];
     scUsers: { id: string; name: string }[];
-    cycles: { id: string; name: string }[];
+    cycles: { id: string; name: string; start_date: string; end_date: string | null }[];
   }>({
     companies: [],
     categories: [],
@@ -79,7 +79,10 @@ export function FnSExport() {
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("categories").select("id, name").order("name"),
       supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
-      supabase.from("reimbursement_cycles").select("id, name").order("created_at", { ascending: false }),
+      supabase
+        .from("reimbursement_cycles")
+        .select("id, name, start_date, end_date")
+        .order("created_at", { ascending: false }),
     ]);
 
     setDropdownData({
@@ -123,7 +126,13 @@ export function FnSExport() {
       }
 
       if (filters.cycle_id) {
-        query = query.eq("cycle_id", filters.cycle_id);
+        const selectedCycle = dropdownData.cycles.find((cycle) => cycle.id === filters.cycle_id);
+        if (selectedCycle) {
+          query = query.gte("date", selectedCycle.start_date);
+          if (selectedCycle.end_date) {
+            query = query.lte("date", selectedCycle.end_date);
+          }
+        }
       }
 
       if (selectedMonth !== "all") {
@@ -147,7 +156,7 @@ export function FnSExport() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, filters, selectedMonth, toast]);
+  }, [supabase, filters, selectedMonth, toast, dropdownData.cycles]);
 
   useEffect(() => {
     fetchDropdownData();
