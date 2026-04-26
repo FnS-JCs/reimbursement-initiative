@@ -1,6 +1,9 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
 
+const GOOGLE_DRIVE_REAUTH_MESSAGE =
+  "Google Drive authorization has expired or was revoked. Re-authorize at /api/auth/google-drive-authorize, update GOOGLE_DRIVE_REFRESH_TOKEN in .env.local, then restart the app.";
+
 // Get OAuth access token using refresh token
 const getAccessToken = async (): Promise<string> => {
   const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
@@ -29,7 +32,15 @@ const getAccessToken = async (): Promise<string> => {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(`Failed to refresh access token: ${error.error_description}`);
+      if (error?.error === "invalid_grant") {
+        throw new Error(GOOGLE_DRIVE_REAUTH_MESSAGE);
+      }
+
+      throw new Error(
+        error?.error_description
+          ? `Failed to refresh access token: ${error.error_description}`
+          : "Failed to refresh access token."
+      );
     }
 
     const data = await response.json();
@@ -147,6 +158,42 @@ export const uploadBillToGoogleDrive = async (
       statusText: error.statusText,
     });
     throw new Error(`Failed to upload file to Google Drive: ${error.message}`);
+  }
+};
+
+export const extractGoogleDriveFileId = (fileUrl: string): string | null => {
+  const directMatch = fileUrl.match(/\/file\/d\/([^/]+)/);
+  if (directMatch?.[1]) {
+    return directMatch[1];
+  }
+
+  try {
+    const url = new URL(fileUrl);
+    return url.searchParams.get("id");
+  } catch {
+    return null;
+  }
+};
+
+export const deleteBillFromGoogleDrive = async (fileId: string): Promise<void> => {
+  const drive = await getGoogleDriveClient();
+
+  try {
+    await drive.files.delete({
+      fileId,
+    });
+  } catch (error: any) {
+    if (error?.code === 404) {
+      return;
+    }
+
+    console.error("Failed to delete Google Drive file:", {
+      fileId,
+      message: error?.message,
+      code: error?.code,
+      status: error?.status,
+    });
+    throw new Error(`Failed to delete file from Google Drive: ${error?.message || "Unknown error"}`);
   }
 };
 
