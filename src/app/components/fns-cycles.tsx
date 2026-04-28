@@ -5,7 +5,7 @@ import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card";
+import { Card, CardContent } from "@/ui/card";
 import { Badge } from "@/ui/badge";
 import {
   Dialog,
@@ -32,6 +32,10 @@ export function FnSCycles() {
     open: false,
     cycle: null,
   });
+  const [closeDialog, setCloseDialog] = useState<{ open: boolean; cycleId: string | null }>({
+    open: false,
+    cycleId: null,
+  });
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; cycle: ReimbursementCycle | null }>({
     open: false,
     cycle: null,
@@ -49,11 +53,6 @@ export function FnSCycles() {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  // Helper function to determine if a cycle is currently active based on dates
-  const isCycleActive = (cycle: ReimbursementCycle): boolean => {
-    return !cycle.is_closed;
-  };
-
   const fetchCycles = useCallback(async () => {
     setLoading(true);
     try {
@@ -64,7 +63,7 @@ export function FnSCycles() {
 
       if (error) throw error;
       setCycles(data || []);
-    } catch (err) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to fetch cycles",
@@ -80,36 +79,13 @@ export function FnSCycles() {
   }, [fetchCycles]);
 
   const handleAdd = async () => {
-    if (!addForm.name || !addForm.start_date) {
+    if (!addForm.name || !addForm.start_date || !addForm.end_date) {
       toast({
         title: "Validation Error",
-        description: "Name and start date are required. End date is optional.",
+        description: "Please fill in all required fields",
         variant: "destructive",
       });
       return;
-    }
-
-    // Validate that end_date (if provided) is after start_date
-    if (addForm.end_date && addForm.end_date < addForm.start_date) {
-      toast({
-        title: "Validation Error",
-        description: "End date must be after start date",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Check if trying to create another ongoing cycle (one with no end date)
-    if (!addForm.end_date) {
-      const ongoingCycle = cycles.find(c => !c.end_date);
-      if (ongoingCycle) {
-        toast({
-          title: "Error",
-          description: "Only one ongoing cycle (without end date) is allowed at a time",
-          variant: "destructive",
-        });
-        return;
-      }
     }
 
     setSubmitting(true);
@@ -117,7 +93,9 @@ export function FnSCycles() {
       const { error } = await supabase.from("reimbursement_cycles").insert({
         name: addForm.name,
         start_date: addForm.start_date,
-        end_date: addForm.end_date || null,
+        end_date: addForm.end_date,
+        is_active: false,
+        is_closed: false,
       });
 
       if (error) throw error;
@@ -130,10 +108,11 @@ export function FnSCycles() {
       setAddDialog(false);
       setAddForm({ name: "", start_date: new Date().toISOString().split('T')[0], end_date: "" });
       fetchCycles();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to create cycle";
       toast({
         title: "Error",
-        description: err.message || "Failed to create cycle",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -143,38 +122,6 @@ export function FnSCycles() {
 
   const handleEdit = async () => {
     if (!editDialog.cycle) return;
-
-    if (!editForm.name || !editForm.start_date) {
-      toast({
-        title: "Validation Error",
-        description: "Name and start date are required",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Validate that end_date (if provided) is after start_date
-    if (editForm.end_date && editForm.end_date < editForm.start_date) {
-      toast({
-        title: "Validation Error",
-        description: "End date must be after start date",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // If changing to ongoing (no end date), check that no other ongoing cycle exists
-    if (!editForm.end_date && editDialog.cycle.end_date) {
-      const ongoingCycle = cycles.find(c => !c.end_date && c.id !== editDialog.cycle?.id);
-      if (ongoingCycle) {
-        toast({
-          title: "Error",
-          description: "Only one ongoing cycle (without end date) is allowed at a time",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
 
     setSubmitting(true);
     try {
@@ -196,10 +143,112 @@ export function FnSCycles() {
 
       setEditDialog({ open: false, cycle: null });
       fetchCycles();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to update cycle";
       toast({
         title: "Error",
-        description: err.message || "Failed to update cycle",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSetActive = async (cycleId: string) => {
+    setSubmitting(true);
+    try {
+      await supabase
+        .from("reimbursement_cycles")
+        .update({ is_active: false })
+        .eq("is_active", true);
+
+      await supabase
+        .from("reimbursement_cycles")
+        .update({ is_active: true })
+        .eq("id", cycleId);
+
+      toast({
+        title: "Cycle activated",
+        description: "This cycle is now active",
+      });
+
+      fetchCycles();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to activate cycle";
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleClose = async () => {
+    if (!closeDialog.cycleId) return;
+
+    setSubmitting(true);
+    try {
+      await supabase
+        .from("reimbursement_cycles")
+        .update({ is_closed: true, is_active: false })
+        .eq("id", closeDialog.cycleId);
+
+      toast({
+        title: "Cycle closed",
+        description: "The cycle has been closed",
+      });
+
+      setCloseDialog({ open: false, cycleId: null });
+      fetchCycles();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to close cycle";
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteDialog.cycle) return;
+
+    setSubmitting(true);
+    try {
+      const response = await fetch(`/api/fns/cycles/${deleteDialog.cycle.id}`, {
+        method: "DELETE",
+      });
+
+      const payload = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to delete cycle");
+      }
+
+      toast({
+        title: "Cycle deleted",
+        description: "The cycle has been deleted successfully",
+      });
+
+      setDeleteDialog({ open: false, cycle: null });
+      fetchCycles();
+    } catch (err: unknown) {
+      let message = "Failed to delete cycle";
+
+      if (err && typeof err === "object" && "message" in err && typeof err.message === "string") {
+        message = err.message;
+      } else if (err instanceof Error) {
+        message = err.message;
+      }
+
+      toast({
+        title: "Error",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -216,43 +265,13 @@ export function FnSCycles() {
     setEditDialog({ open: true, cycle });
   };
 
-  const handleDelete = async () => {
-    if (!deleteDialog.cycle) return;
-
-    setSubmitting(true);
-    try {
-      const { error } = await supabase
-        .from("reimbursement_cycles")
-        .delete()
-        .eq("id", deleteDialog.cycle.id);
-
-      if (error) throw error;
-
-      toast({
-        title: "Cycle deleted",
-        description: "The cycle has been deleted successfully",
-      });
-
-      setDeleteDialog({ open: false, cycle: null });
-      fetchCycles();
-    } catch (err: any) {
-      toast({
-        title: "Error",
-        description: err.message || "Failed to delete cycle",
-        variant: "destructive",
-      });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Cycles</h1>
           <p className="text-muted-foreground">
-            Manage reimbursement cycles. Cycles are automatically active when the current date falls between the start and end dates.
+            Manage reimbursement cycles
           </p>
         </div>
         <Button onClick={() => setAddDialog(true)}>
@@ -275,50 +294,69 @@ export function FnSCycles() {
             </CardContent>
           </Card>
         ) : (
-          cycles.map((cycle) => {
-            const isActive = isCycleActive(cycle);
-
-            return (
-              <Card key={cycle.id}>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold">{cycle.name}</h3>
-                          {isActive && (
-                            <Badge variant="success">Active</Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {formatDate(cycle.start_date)}
-                          {cycle.end_date && ` - ${formatDate(cycle.end_date)}`}
-                          {!cycle.end_date && " - Ongoing"}
-                        </p>
+          cycles.map((cycle) => (
+            <Card key={cycle.id}>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold">{cycle.name}</h3>
+                        {cycle.is_active && (
+                          <Badge variant="success">Active</Badge>
+                        )}
+                        {cycle.is_closed && (
+                          <Badge variant="secondary">Closed</Badge>
+                        )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEditDialog(cycle)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteDialog({ open: true, cycle })}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <p className="text-sm text-muted-foreground">
+                        {formatDate(cycle.start_date)}
+                        {cycle.end_date && ` - ${formatDate(cycle.end_date)}`}
+                      </p>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })
+                  <div className="flex items-center gap-2">
+                    {!cycle.is_active && !cycle.is_closed && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSetActive(cycle.id)}
+                        disabled={submitting}
+                      >
+                        Set Active
+                      </Button>
+                    )}
+                    {cycle.is_active && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCloseDialog({ open: true, cycleId: cycle.id })}
+                        disabled={submitting}
+                      >
+                        Close Cycle
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openEditDialog(cycle)}
+                      disabled={submitting}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDeleteDialog({ open: true, cycle })}
+                      disabled={submitting}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
         )}
       </div>
 
@@ -327,12 +365,12 @@ export function FnSCycles() {
           <DialogHeader>
             <DialogTitle>New Cycle</DialogTitle>
             <DialogDescription>
-              Create a new reimbursement cycle. Cycles are automatically active when today's date falls between the start and end dates. Leave the end date empty to create an ongoing cycle (only one ongoing cycle allowed).
+              Create a new reimbursement cycle. Only one cycle can be active at a time.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="add-name">Cycle Name *</Label>
+              <Label htmlFor="add-name">Cycle Name</Label>
               <Input
                 id="add-name"
                 value={addForm.name}
@@ -342,7 +380,7 @@ export function FnSCycles() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="add-start">Start Date *</Label>
+                <Label htmlFor="add-start">Start Date</Label>
                 <Input
                   id="add-start"
                   type="date"
@@ -351,7 +389,7 @@ export function FnSCycles() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="add-end">End Date (Optional)</Label>
+                <Label htmlFor="add-end">End Date</Label>
                 <Input
                   id="add-end"
                   type="date"
@@ -381,7 +419,7 @@ export function FnSCycles() {
           <DialogHeader>
             <DialogTitle>Edit Cycle</DialogTitle>
             <DialogDescription>
-              Make changes to the cycle details. Leave the end date empty to make it ongoing.
+              Make changes to the cycle details
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -404,7 +442,7 @@ export function FnSCycles() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-end">End Date (Optional)</Label>
+                <Label htmlFor="edit-end">End Date</Label>
                 <Input
                   id="edit-end"
                   type="date"
@@ -430,14 +468,40 @@ export function FnSCycles() {
       </Dialog>
 
       <Dialog
+        open={closeDialog.open}
+        onOpenChange={(open) => setCloseDialog({ open, cycleId: null })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Close Cycle</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to close this cycle? This will mark it as inactive.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCloseDialog({ open: false, cycleId: null })}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleClose} disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Close Cycle
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={deleteDialog.open}
-        onOpenChange={(open) => setDeleteDialog({ open, cycle: null })}
+        onOpenChange={(open) => setDeleteDialog({ open, cycle: open ? deleteDialog.cycle : null })}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Cycle</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{deleteDialog.cycle?.name}"? This action cannot be undone.
+              {`Delete "${deleteDialog.cycle?.name}" permanently. This only works if no bills are assigned to the cycle.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -447,11 +511,7 @@ export function FnSCycles() {
             >
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={submitting}
-            >
+            <Button variant="destructive" onClick={handleDelete} disabled={submitting}>
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Delete Cycle
             </Button>

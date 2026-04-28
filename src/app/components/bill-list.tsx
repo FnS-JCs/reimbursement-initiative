@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
-import { Badge } from "@/ui/badge";
 import {
   Select,
   SelectContent,
@@ -26,16 +25,17 @@ import { Textarea } from "@/ui/textarea";
 import { Bill, Role, BillFilters, BillComment } from "@/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
+import { DriveLinkPreview } from "./drive-link-preview";
 import {
   CheckCircle2,
   XCircle,
   FileText,
   Loader2,
-  ExternalLink,
   Edit,
   RotateCcw,
   ArrowDown,
   ArrowUp,
+  Trash2,
 } from "lucide-react";
 import {
   Tooltip,
@@ -98,6 +98,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   });
 
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
+  const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
 
   const [dropdownData, setDropdownData] = useState<{
     companies: { id: string; name: string }[];
@@ -273,7 +274,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   useEffect(() => {
     fetchBills();
-  }, [fetchBills]);
+  }, [fetchBills, refreshKey]);
 
   useEffect(() => {
     if (isSC) {
@@ -443,6 +444,43 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
   };
 
+  const handleDeleteBill = async (bill: BillWithRelations) => {
+    const confirmed = window.confirm(`Delete bill #${bill.bill_number}? This cannot be undone.`);
+
+    if (!confirmed) return;
+
+    setDeletingBillId(bill.id);
+
+    try {
+      const response = await fetch("/api/bills/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ billId: bill.id }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to delete bill");
+      }
+
+      setBills((prev) => prev.filter((currentBill) => currentBill.id !== bill.id));
+      toast({
+        title: "Bill deleted",
+        description: "Your submitted bill has been deleted.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to delete bill",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingBillId(null);
+    }
+  };
+
   const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
 
   const pendingAmount = bills
@@ -454,10 +492,10 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     .reduce((sum, b) => sum + b.amount, 0);
 
   const statusConfig = {
-    pending: { label: "Pending" },
-    physical_received: { label: "Received" },
-    reimbursed: { label: "Reimbursed" },
-    rejected: { label: "Rejected" },
+    pending: { label: "Pending", className: "text-muted-foreground" },
+    physical_received: { label: "Received", className: "text-blue-600" },
+    reimbursed: { label: "Reimbursed", className: "text-green-600" },
+    rejected: { label: "Rejected", className: "text-destructive" },
   };
 
   const getStatusLabel = (bill: BillWithRelations) => {
@@ -474,6 +512,14 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
 
     return "Rejected";
+  };
+
+  const getStatusClassName = (bill: BillWithRelations) => {
+    if (bill.status !== "rejected") {
+      return statusConfig[bill.status].className;
+    }
+
+    return "text-destructive";
   };
 
   const renderStatusNote = (bill: BillWithRelations) => {
@@ -687,6 +733,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   const isSubmitter = bill.user_id === userId;
                   const isAssignedSC = bill.sc_cabinets?.user_id === userId;
                   const canTakeAction = isSC && !isSubmitter && isAssignedSC;
+                  const canDeleteOwnBill = isSubmitter;
                   const isRejected = bill.status === "rejected";
 
                   return (
@@ -700,7 +747,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                         <div className="text-xs text-muted-foreground">#{bill.bill_number}</div>
                       </td>
                       <td className="px-4 py-3">
-                        {bill.companies?.name || <Badge variant="secondary">General</Badge>}
+                        {bill.companies?.name || <span className="text-muted-foreground">General</span>}
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-primary">{bill.categories?.name}</div>
@@ -714,17 +761,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                         {formatCurrency(bill.amount)}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <Badge
-                          variant={
-                            bill.status === "reimbursed"
-                              ? "success"
-                              : bill.status === "rejected"
-                              ? "destructive"
-                              : "secondary"
-                          }
-                        >
+                        <span className={`font-medium ${getStatusClassName(bill)}`}>
                           {getStatusLabel(bill)}
-                        </Badge>
+                        </span>
                         {renderStatusNote(bill)}
                       </td>
                       <td className="px-4 py-3">
@@ -820,20 +859,30 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                               </>
                             )}
 
-                            {bill.file_url && (
+                            {canDeleteOwnBill && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <a href={bill.file_url} target="_blank" rel="noopener noreferrer">
-                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                      <ExternalLink className="h-4 w-4" />
-                                    </Button>
-                                  </a>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => handleDeleteBill(bill)}
+                                    disabled={deletingBillId === bill.id}
+                                  >
+                                    {deletingBillId === bill.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin text-destructive" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                    )}
+                                  </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                  <p>View drive link</p>
+                                  <p>Delete your bill</p>
                                 </TooltipContent>
                               </Tooltip>
                             )}
+
+                            {bill.file_url && <DriveLinkPreview fileUrl={bill.file_url} />}
                           </div>
                         </TooltipProvider>
                       </td>
