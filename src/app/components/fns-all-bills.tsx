@@ -1,17 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, useTransition } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -34,16 +26,16 @@ import { Bill, Role, BillFilters, BillComment } from "@/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
 import { DriveLinkPreview } from "./drive-link-preview";
+import { MultiSelectFilter } from "./multi-select-filter";
 import {
   FileText,
   Edit,
   Loader2,
-  CheckCircle2,
   XCircle,
   RotateCcw,
   ArrowDown,
   ArrowUp,
-  ChevronDown,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   Tooltip,
@@ -68,89 +60,28 @@ interface FnSAllBillsProps {
   refreshKey?: number;
 }
 
-interface MultiSelectFilterProps {
-  label: string;
-  placeholder: string;
-  options: { value: string; label: string }[];
-  selectedValues: string[];
-  onChange: (values: string[]) => void;
-}
-
-function MultiSelectFilter({
-  label,
-  placeholder,
-  options,
-  selectedValues,
-  onChange,
-}: MultiSelectFilterProps) {
-  const summary = useMemo(() => {
-    if (selectedValues.length === 0) {
-      return placeholder;
-    }
-
-    if (selectedValues.length === 1) {
-      return options.find((option) => option.value === selectedValues[0])?.label ?? placeholder;
-    }
-
-    return `${selectedValues.length} selected`;
-  }, [options, placeholder, selectedValues]);
-
-  const toggleValue = (value: string) => {
-    onChange(
-      selectedValues.includes(value)
-        ? selectedValues.filter((selectedValue) => selectedValue !== value)
-        : [...selectedValues, value]
-    );
-  };
-
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button type="button" variant="outline" className="w-full justify-between font-normal">
-            <span className="truncate">{summary}</span>
-            <ChevronDown className="h-4 w-4 opacity-60" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-56">
-          <DropdownMenuLabel className="flex items-center justify-between gap-2">
-            <span>{label}</span>
-            {selectedValues.length > 0 ? (
-              <button
-                type="button"
-                className="text-xs font-medium text-primary"
-                onClick={() => onChange([])}
-              >
-                Clear
-              </button>
-            ) : null}
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {options.map((option) => (
-            <DropdownMenuCheckboxItem
-              key={option.value}
-              checked={selectedValues.includes(option.value)}
-              onCheckedChange={() => toggleValue(option.value)}
-            >
-              {option.label}
-            </DropdownMenuCheckboxItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
-}
-
 export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   const supabase = createClient();
   const { toast } = useToast();
+  const [, startTransition] = useTransition();
 
   const [bills, setBills] = useState<BillWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dateSort, setDateSort] = useState<"desc" | "asc">("desc");
+  const [sort, setSort] = useState<{ column: string; direction: "asc" | "desc" }>({
+    column: "date",
+    direction: "desc",
+  });
 
   const [filters, setFilters] = useState<BillFilters>({});
+
+  const updateFilters = useCallback(
+    (updater: (prev: BillFilters) => BillFilters) => {
+      startTransition(() => {
+        setFilters(updater);
+      });
+    },
+    [startTransition]
+  );
 
   const [dropdownData, setDropdownData] = useState<{
     companies: { id: string; name: string }[];
@@ -196,16 +127,37 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-     if (editForm.category_id) {
-       const subCatIds = dropdownData.categorySubCategories
-         .filter((cs) => cs.category_id === editForm.category_id)
-         .map((cs) => cs.subcategory_id);
-       const filtered = dropdownData.subCategories.filter((sc) => subCatIds.includes(sc.id));
-       setFilteredSubCategories(filtered);
-     } else {
-       setFilteredSubCategories([]);
-     }
-   }, [editForm.category_id, dropdownData.categorySubCategories, dropdownData.subCategories]);
+    if (editForm.category_id) {
+      const subCatIds = dropdownData.categorySubCategories
+        .filter((cs) => cs.category_id === editForm.category_id)
+        .map((cs) => cs.subcategory_id);
+      const filtered = dropdownData.subCategories.filter((sc) => subCatIds.includes(sc.id));
+      setFilteredSubCategories(filtered);
+    } else {
+      setFilteredSubCategories([]);
+    }
+  }, [editForm.category_id, dropdownData.categorySubCategories, dropdownData.subCategories]);
+
+  useEffect(() => {
+    if (!editDialog.open || !editDialog.bill) return;
+
+    const bill = editDialog.bill;
+    setEditForm({
+      status: bill.status,
+      amount: bill.amount.toString(),
+      vendor_id: bill.vendor_id,
+      category_id: bill.category_id,
+      subcategory_id: bill.subcategory_id,
+      bill_number: bill.bill_number,
+      date: bill.date,
+      company_id: bill.company_id,
+      fns_comment: bill.fns_comment?.body || "",
+    });
+  }, [editDialog.open, editDialog.bill]);
+
+  // Ref so fetchBills can read the latest cycles without re-running on every dropdown load
+  const cyclesRef = useRef(dropdownData.cycles);
+  useEffect(() => { cyclesRef.current = dropdownData.cycles; }, [dropdownData.cycles]);
 
   const fetchBills = useCallback(async () => {
     setLoading(true);
@@ -221,8 +173,8 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           categories:category_id(name),
           subcategories:subcategory_id(name)
         `)
-        .order("date", { ascending: dateSort === "asc" })
-        .order("created_at", { ascending: dateSort === "asc" });
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false });
 
       if (filters.sc_ids && filters.sc_ids.length > 0) {
         query = query.in("sc_id", filters.sc_ids);
@@ -230,12 +182,24 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         query = query.eq("sc_id", filters.sc_id);
       }
 
-      if (filters.company_id) {
+      if (filters.vendor_ids && filters.vendor_ids.length > 0) {
+        query = query.in("vendor_id", filters.vendor_ids);
+      }
+
+      if (filters.company_ids && filters.company_ids.length > 0) {
+        query = query.in("company_id", filters.company_ids);
+      } else if (filters.company_id) {
         query = query.eq("company_id", filters.company_id);
       }
 
-      if (filters.category_id) {
+      if (filters.category_ids && filters.category_ids.length > 0) {
+        query = query.in("category_id", filters.category_ids);
+      } else if (filters.category_id) {
         query = query.eq("category_id", filters.category_id);
+      }
+
+      if (filters.subcategory_ids && filters.subcategory_ids.length > 0) {
+        query = query.in("subcategory_id", filters.subcategory_ids);
       }
 
       if (filters.statuses && filters.statuses.length > 0) {
@@ -245,9 +209,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       }
 
       if (filters.cycle_ids && filters.cycle_ids.length > 0) {
-        // Cycle ranges may overlap, so we apply them client-side after fetching.
+        // Cycle ranges may overlap — applied client-side after fetching.
       } else if (filters.cycle_id && filters.cycle_id !== "all") {
-        const selectedCycle = dropdownData.cycles.find(c => c.id === filters.cycle_id);
+        const selectedCycle = cyclesRef.current.find((c) => c.id === filters.cycle_id);
         if (selectedCycle) {
           query = query.gte("date", selectedCycle.start_date);
           if (selectedCycle.end_date) {
@@ -270,7 +234,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       let fetchedBills = data || [];
 
       if (filters.cycle_ids && filters.cycle_ids.length > 0) {
-        const selectedCycles = dropdownData.cycles.filter((cycle) => filters.cycle_ids?.includes(cycle.id));
+        const selectedCycles = cyclesRef.current.filter((cycle) =>
+          filters.cycle_ids?.includes(cycle.id)
+        );
         fetchedBills = fetchedBills.filter((bill) =>
           selectedCycles.some((cycle) => {
             const startsInRange = bill.date >= cycle.start_date;
@@ -325,17 +291,17 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     } finally {
       setLoading(false);
     }
-  }, [supabase, filters, dateSort, toast, dropdownData.cycles]);
+  }, [supabase, filters, toast]);
 
   const fetchDropdownData = useCallback(async () => {
     const [
-      companiesRes, 
-      vendorsRes, 
-      categoriesRes, 
+      companiesRes,
+      vendorsRes,
+      categoriesRes,
       subCategoriesRes,
       categorySubCategoriesRes,
-      scUsersRes, 
-      cyclesRes
+      scUsersRes,
+      cyclesRes,
     ] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("vendors").select("id, name").order("name"),
@@ -343,7 +309,10 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       supabase.from("subcategories").select("id, name").order("name"),
       supabase.from("category_subcategories").select("category_id, subcategory_id"),
       supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
-      supabase.from("reimbursement_cycles").select("id, name, start_date, end_date").order("created_at", { ascending: false }),
+      supabase
+        .from("reimbursement_cycles")
+        .select("id, name, start_date, end_date")
+        .order("created_at", { ascending: false }),
     ]);
 
     setDropdownData({
@@ -366,17 +335,6 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   }, [fetchDropdownData]);
 
   const handleEdit = (bill: BillWithRelations) => {
-    setEditForm({
-      status: bill.status,
-      amount: bill.amount.toString(),
-      vendor_id: bill.vendor_id,
-      category_id: bill.category_id,
-      subcategory_id: bill.subcategory_id,
-      bill_number: bill.bill_number,
-      date: bill.date,
-      company_id: bill.company_id,
-      fns_comment: bill.fns_comment?.body || "",
-    });
     setEditDialog({ open: true, bill });
   };
 
@@ -464,9 +422,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ 
+        .update({
           status: "rejected",
-          rejected_by_role: "fns"
+          rejected_by_role: "fns",
         })
         .eq("id", rejectDialog.bill.id);
 
@@ -506,9 +464,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ 
+        .update({
           status: "pending",
-          rejected_by_role: null
+          rejected_by_role: null,
         })
         .eq("id", bill.id);
 
@@ -530,15 +488,17 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     }
   };
 
-  const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
+  // ── Derived totals ──────────────────────────────────────────────────────────
 
+  const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
   const pendingAmount = bills
     .filter((b) => b.status === "pending" || b.status === "physical_received")
     .reduce((sum, b) => sum + b.amount, 0);
-
   const reimbursedAmount = bills
     .filter((b) => b.status === "reimbursed")
     .reduce((sum, b) => sum + b.amount, 0);
+
+  // ── Status helpers ──────────────────────────────────────────────────────────
 
   const statusConfig = {
     pending: { label: "Pending", className: "text-muted-foreground" },
@@ -548,28 +508,72 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   };
 
   const getStatusLabel = (bill: BillWithRelations) => {
-    if (bill.status !== "rejected") {
-      return statusConfig[bill.status].label;
-    }
-
-    if (bill.rejected_by_role === "fns") {
-      return "Rejected by FnS";
-    }
-
-    if (bill.rejected_by_role === "sc") {
-      return "Rejected by SC";
-    }
-
+    if (bill.status !== "rejected") return statusConfig[bill.status].label;
+    if (bill.rejected_by_role === "fns") return "Rejected by FnS";
+    if (bill.rejected_by_role === "sc") return "Rejected by SC";
     return "Rejected";
   };
 
-  const getStatusClassName = (bill: BillWithRelations) => {
-    if (bill.status !== "rejected") {
-      return statusConfig[bill.status].className;
-    }
+  const getStatusClassName = (bill: BillWithRelations) =>
+    bill.status !== "rejected" ? statusConfig[bill.status].className : "text-destructive";
 
-    return "text-destructive";
-  };
+  // ── Client-side sorting ─────────────────────────────────────────────────────
+
+  const sortedBills = useMemo(() => {
+    const sorted = [...bills];
+    sorted.sort((a, b) => {
+      const dir = sort.direction === "asc" ? 1 : -1;
+      switch (sort.column) {
+        case "date":
+          return dir * a.date.localeCompare(b.date);
+        case "submitted_by":
+          return dir * (a.users?.name ?? "").localeCompare(b.users?.name ?? "");
+        case "vendor":
+          return dir * (a.vendors?.name ?? "").localeCompare(b.vendors?.name ?? "");
+        case "company":
+          return dir * (a.companies?.name ?? "").localeCompare(b.companies?.name ?? "");
+        case "category":
+          return dir * (a.categories?.name ?? "").localeCompare(b.categories?.name ?? "");
+        case "sc":
+          return dir * (a.sc_cabinets?.name ?? "").localeCompare(b.sc_cabinets?.name ?? "");
+        case "amount":
+          return dir * (a.amount - b.amount);
+        case "status":
+          return dir * a.status.localeCompare(b.status);
+        default:
+          return 0;
+      }
+    });
+    return sorted;
+  }, [bills, sort]);
+
+  const toggleSort = (column: string) =>
+    setSort((prev) =>
+      prev.column === column
+        ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { column, direction: "asc" }
+    );
+
+  const renderSortHeader = (column: string, label: string) => (
+    <button
+      type="button"
+      onClick={() => toggleSort(column)}
+      className="inline-flex items-center gap-1.5 rounded-sm text-left font-medium transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      {label}
+      {sort.column === column ? (
+        sort.direction === "desc" ? (
+          <ArrowDown className="h-3.5 w-3.5" />
+        ) : (
+          <ArrowUp className="h-3.5 w-3.5" />
+        )
+      ) : (
+        <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+      )}
+    </button>
+  );
+
+  // ── Filter option memos ─────────────────────────────────────────────────────
 
   const scFilterOptions = useMemo(
     () => dropdownData.scUsers.map((sc) => ({ value: sc.id, label: sc.name })),
@@ -590,6 +594,36 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     () => dropdownData.cycles.map((cycle) => ({ value: cycle.id, label: cycle.name })),
     [dropdownData.cycles]
   );
+
+  const vendorFilterOptions = useMemo(
+    () => dropdownData.vendors.map((v) => ({ value: v.id, label: v.name })),
+    [dropdownData.vendors]
+  );
+
+  const companyFilterOptions = useMemo(
+    () => dropdownData.companies.map((c) => ({ value: c.id, label: c.name })),
+    [dropdownData.companies]
+  );
+
+  const categoryFilterOptions = useMemo(
+    () => dropdownData.categories.map((c) => ({ value: c.id, label: c.name })),
+    [dropdownData.categories]
+  );
+
+  const subcategoryFilterOptions = useMemo(() => {
+    const selectedCategoryIds = filters.category_ids;
+    if (!selectedCategoryIds || selectedCategoryIds.length === 0) {
+      return dropdownData.subCategories.map((sc) => ({ value: sc.id, label: sc.name }));
+    }
+    const validIds = dropdownData.categorySubCategories
+      .filter((cs) => selectedCategoryIds.includes(cs.category_id))
+      .map((cs) => cs.subcategory_id);
+    return dropdownData.subCategories
+      .filter((sc) => validIds.includes(sc.id))
+      .map((sc) => ({ value: sc.id, label: sc.name }));
+  }, [dropdownData.subCategories, dropdownData.categorySubCategories, filters.category_ids]);
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -628,92 +662,135 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
               <CardTitle className="text-lg">Filters</CardTitle>
               <CardDescription>Filter bills by various criteria</CardDescription>
             </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setFilters({})}
-            >
+            <Button variant="outline" size="sm" onClick={() => updateFilters(() => ({}))}>
               Clear Filters
             </Button>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-5 bg-muted/50 p-4 rounded-lg">
+          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 bg-muted/50 p-4 rounded-lg">
             <MultiSelectFilter
               label="SC Cabinet"
               placeholder="All Cabinets"
               options={scFilterOptions}
               selectedValues={filters.sc_ids || []}
               onChange={(values) =>
-                setFilters({
-                  ...filters,
+                updateFilters((prev) => ({
+                  ...prev,
                   sc_ids: values.length > 0 ? values : undefined,
                   sc_id: undefined,
-                })
+                }))
               }
             />
-
             <MultiSelectFilter
               label="Status"
-              placeholder="All Status"
+              placeholder="All Statuses"
               options={statusFilterOptions}
               selectedValues={filters.statuses || []}
               onChange={(values) =>
-                setFilters({
-                  ...filters,
+                updateFilters((prev) => ({
+                  ...prev,
                   statuses: values.length > 0 ? (values as Bill["status"][]) : undefined,
                   status: undefined,
-                })
+                }))
               }
             />
-
             <MultiSelectFilter
               label="Cycle"
               placeholder="All Cycles"
               options={cycleFilterOptions}
               selectedValues={filters.cycle_ids || []}
               onChange={(values) =>
-                setFilters({
-                  ...filters,
+                updateFilters((prev) => ({
+                  ...prev,
                   cycle_ids: values.length > 0 ? values : undefined,
                   cycle_id: undefined,
                   date_from: undefined,
                   date_to: undefined,
-                })
+                }))
               }
             />
-
+            <MultiSelectFilter
+              label="Vendors"
+              placeholder="All Vendors"
+              options={vendorFilterOptions}
+              selectedValues={filters.vendor_ids || []}
+              onChange={(values) =>
+                updateFilters((prev) => ({
+                  ...prev,
+                  vendor_ids: values.length > 0 ? values : undefined,
+                }))
+              }
+            />
+            <MultiSelectFilter
+              label="Companies"
+              placeholder="All Companies"
+              options={companyFilterOptions}
+              selectedValues={filters.company_ids || []}
+              onChange={(values) =>
+                updateFilters((prev) => ({
+                  ...prev,
+                  company_ids: values.length > 0 ? values : undefined,
+                  company_id: undefined,
+                }))
+              }
+            />
+            <MultiSelectFilter
+              label="Categories"
+              placeholder="All Categories"
+              options={categoryFilterOptions}
+              selectedValues={filters.category_ids || []}
+              onChange={(values) =>
+                updateFilters((prev) => ({
+                  ...prev,
+                  category_ids: values.length > 0 ? values : undefined,
+                  category_id: undefined,
+                  subcategory_ids: undefined,
+                }))
+              }
+            />
+            <MultiSelectFilter
+              label="Subcategories"
+              placeholder="All Subcategories"
+              options={subcategoryFilterOptions}
+              selectedValues={filters.subcategory_ids || []}
+              onChange={(values) =>
+                updateFilters((prev) => ({
+                  ...prev,
+                  subcategory_ids: values.length > 0 ? values : undefined,
+                }))
+              }
+            />
             <div className="space-y-2">
-          <Label>From Date</Label>
-          <Input
-            type="date"
-            value={filters.date_from || ""}
-            onChange={(e) => 
-              setFilters({ 
-                ...filters, 
-                date_from: e.target.value || undefined,
-                cycle_id: undefined,
-                cycle_ids: undefined
-              })
-            }
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label>To Date</Label>
-          <Input
-            type="date"
-            value={filters.date_to || ""}
-            onChange={(e) => 
-              setFilters({ 
-                ...filters, 
-                date_to: e.target.value || undefined,
-                cycle_id: undefined,
-                cycle_ids: undefined
-              })
-            }
-          />
-        </div>
+              <Label>From Date</Label>
+              <Input
+                type="date"
+                value={filters.date_from || ""}
+                onChange={(e) =>
+                  updateFilters((prev) => ({
+                    ...prev,
+                    date_from: e.target.value || undefined,
+                    cycle_id: undefined,
+                    cycle_ids: undefined,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>To Date</Label>
+              <Input
+                type="date"
+                value={filters.date_to || ""}
+                onChange={(e) =>
+                  updateFilters((prev) => ({
+                    ...prev,
+                    date_to: e.target.value || undefined,
+                    cycle_id: undefined,
+                    cycle_ids: undefined,
+                  }))
+                }
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -723,7 +800,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : bills.length === 0 ? (
+        ) : sortedBills.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
@@ -736,149 +813,127 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-foreground">
-                  <th className="px-4 py-3 text-left font-medium">
-                    <button
-                      type="button"
-                      onClick={() => setDateSort((current) => (current === "desc" ? "asc" : "desc"))}
-                      className="inline-flex items-center gap-2 rounded-sm text-left font-medium transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      aria-label={`Sort by date ${dateSort === "desc" ? "oldest first" : "newest first"}`}
-                    >
-                      Date
-                      {dateSort === "desc" ? (
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      ) : (
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium">Submitted By</th>
-                  <th className="px-4 py-3 text-left font-medium">Vendor</th>
-                  <th className="px-4 py-3 text-left font-medium">Company</th>
-                  <th className="px-4 py-3 text-left font-medium">Category</th>
-                  <th className="px-4 py-3 text-left font-medium">SC</th>
-                  <th className="px-4 py-3 text-right font-medium">Amount</th>
-                  <th className="px-4 py-3 text-center font-medium">Status</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("date", "Date")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("submitted_by", "Submitted By")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("vendor", "Vendor")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("company", "Company")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("category", "Category")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("sc", "SC")}</th>
+                  <th className="px-4 py-3 text-right">{renderSortHeader("amount", "Amount")}</th>
+                  <th className="px-4 py-3 text-center">{renderSortHeader("status", "Status")}</th>
                   <th className="px-4 py-3 text-center font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="text-foreground">
-                {bills.map((bill) => {
-                  return (
-                    <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
-                      <td className="px-4 py-3">{formatDate(bill.date)}</td>
-                      <td className="px-4 py-3">
-                        {bill.submitted_by_role === "fns" ? "FnS" : bill.users?.name}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-primary">{bill.vendors?.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          #{bill.bill_number}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {bill.companies?.name || <span className="text-muted-foreground">General</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-primary">{bill.categories?.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {bill.subcategories?.name}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">{bill.sc_cabinets?.name || "-"}</td>
-                      <td className="px-4 py-3 text-right font-medium text-primary">
-                        {formatCurrency(bill.amount)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`font-medium ${getStatusClassName(bill)}`}>
-                          {getStatusLabel(bill)}
-                        </span>
-                        {bill.rejected_by_role === "fns" && bill.fns_comment && (
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            FnS: {bill.fns_comment.body}
-                          </p>
-                        )}
-                        {bill.rejected_by_role === "sc" && bill.sc_rejection_comment && (
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            SC: {bill.sc_rejection_comment.body}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <TooltipProvider>
-                          <div className="flex items-center justify-center gap-1">
+                {sortedBills.map((bill) => (
+                  <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
+                    <td className="px-4 py-3">{formatDate(bill.date)}</td>
+                    <td className="px-4 py-3">
+                      {bill.submitted_by_role === "fns" ? "FnS" : bill.users?.name}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-primary">{bill.vendors?.name}</div>
+                      <div className="text-xs text-muted-foreground">#{bill.bill_number}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {bill.companies?.name || (
+                        <span className="text-muted-foreground">General</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-primary">{bill.categories?.name}</div>
+                      <div className="text-xs text-muted-foreground">{bill.subcategories?.name}</div>
+                    </td>
+                    <td className="px-4 py-3">{bill.sc_cabinets?.name || "-"}</td>
+                    <td className="px-4 py-3 text-right font-medium text-primary">
+                      {formatCurrency(bill.amount)}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`font-medium ${getStatusClassName(bill)}`}>
+                        {getStatusLabel(bill)}
+                      </span>
+                      {bill.rejected_by_role === "fns" && bill.fns_comment && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          FnS: {bill.fns_comment.body}
+                        </p>
+                      )}
+                      {bill.rejected_by_role === "sc" && bill.sc_rejection_comment && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          SC: {bill.sc_rejection_comment.body}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <TooltipProvider>
+                        <div className="flex items-center justify-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                onClick={() => handleEdit(bill)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Edit bill details</p>
+                            </TooltipContent>
+                          </Tooltip>
+
+                          {bill.status === "rejected" ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   className="h-8 w-8 p-0"
-                                  onClick={() => handleEdit(bill)}
+                                  onClick={() => handleUndoReject(bill)}
                                 >
-                                  <Edit className="h-4 w-4" />
+                                  <RotateCcw className="h-4 w-4 text-blue-600" />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Edit bill details</p>
+                                <p>Undo rejection</p>
                               </TooltipContent>
                             </Tooltip>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => openRejectDialog(bill)}
+                                >
+                                  <XCircle className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Reject bill</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
 
-                            {bill.status === "rejected" ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => handleUndoReject(bill)}
-                                  >
-                                    <RotateCcw className="h-4 w-4 text-blue-600" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Undo rejection</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => openRejectDialog(bill)}
-                                  >
-                                    <XCircle className="h-4 w-4 text-destructive" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Reject bill</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-
-                            {bill.file_url && <DriveLinkPreview fileUrl={bill.file_url} />}
-                          </div>
-                        </TooltipProvider>
-                      </td>
-                    </tr>
-                  );
-                })}
+                          {bill.file_url && <DriveLinkPreview fileUrl={bill.file_url} />}
+                        </div>
+                      </TooltipProvider>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      <Dialog
-        open={editDialog.open}
-        onOpenChange={(open) => setEditDialog({ open, bill: null })}
-      >
+      {/* Edit Dialog */}
+      <Dialog open={editDialog.open} onOpenChange={(open) => setEditDialog({ open, bill: null })}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Bill Details</DialogTitle>
-            <DialogDescription>
-              Modify the bill information as required.
-            </DialogDescription>
+            <DialogDescription>Modify the bill information as required.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-6 py-4">
             <div className="grid grid-cols-2 gap-4">
@@ -922,7 +977,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                   </SelectTrigger>
                   <SelectContent>
                     {dropdownData.vendors.map((vendor) => (
-                      <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>
+                      <SelectItem key={vendor.id} value={vendor.id}>
+                        {vendor.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -941,14 +998,18 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                 <Label>Category</Label>
                 <Select
                   value={editForm.category_id}
-                  onValueChange={(v) => setEditForm({ ...editForm, category_id: v, subcategory_id: "" })}
+                  onValueChange={(v) =>
+                    setEditForm({ ...editForm, category_id: v, subcategory_id: "" })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {dropdownData.categories.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                      <SelectItem key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -965,7 +1026,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                   </SelectTrigger>
                   <SelectContent>
                     {filteredSubCategories.map((sc) => (
-                      <SelectItem key={sc.id} value={sc.id}>{sc.name}</SelectItem>
+                      <SelectItem key={sc.id} value={sc.id}>
+                        {sc.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -985,7 +1048,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                 <Label>Company (Optional)</Label>
                 <Select
                   value={editForm.company_id || "none"}
-                  onValueChange={(v) => setEditForm({ ...editForm, company_id: v === "none" ? null : v })}
+                  onValueChange={(v) =>
+                    setEditForm({ ...editForm, company_id: v === "none" ? null : v })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="General" />
@@ -993,7 +1058,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                   <SelectContent>
                     <SelectItem value="none">General (No Company)</SelectItem>
                     {dropdownData.companies.map((company) => (
-                      <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
+                      <SelectItem key={company.id} value={company.id}>
+                        {company.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1018,9 +1085,16 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         </DialogContent>
       </Dialog>
 
+      {/* Reject Dialog */}
       <Dialog
         open={rejectDialog.open}
-        onOpenChange={(open) => setRejectDialog({ open, bill: open ? rejectDialog.bill : null, comment: open ? rejectDialog.comment : "" })}
+        onOpenChange={(open) =>
+          setRejectDialog({
+            open,
+            bill: open ? rejectDialog.bill : null,
+            comment: open ? rejectDialog.comment : "",
+          })
+        }
       >
         <DialogContent>
           <DialogHeader>
@@ -1038,7 +1112,10 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialog({ open: false, bill: null, comment: "" })}>
+            <Button
+              variant="outline"
+              onClick={() => setRejectDialog({ open: false, bill: null, comment: "" })}
+            >
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleReject}>
@@ -1047,6 +1124,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }

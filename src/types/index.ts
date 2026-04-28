@@ -129,7 +129,11 @@ export interface BillFilters {
   status?: BillStatus | 'all';
   statuses?: BillStatus[];
   company_id?: string;
+  company_ids?: string[];
+  vendor_ids?: string[];
   category_id?: string;
+  category_ids?: string[];
+  subcategory_ids?: string[];
   sc_id?: string;
   sc_ids?: string[];
   cycle_id?: string;

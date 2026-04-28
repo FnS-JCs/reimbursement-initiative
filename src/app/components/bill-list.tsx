@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
@@ -26,6 +26,7 @@ import { Bill, Role, BillFilters, BillComment } from "@/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
 import { DriveLinkPreview } from "./drive-link-preview";
+import { MultiSelectFilter } from "./multi-select-filter";
 import {
   CheckCircle2,
   XCircle,
@@ -35,6 +36,7 @@ import {
   RotateCcw,
   ArrowDown,
   ArrowUp,
+  ArrowUpDown,
   Trash2,
 } from "lucide-react";
 import {
@@ -69,12 +71,16 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   const [bills, setBills] = useState<BillWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dateSort, setDateSort] = useState<"desc" | "asc">("desc");
-
-  const [filters, setFilters] = useState<BillFilters>({
-    submitted_by_filter: "all",
-    status: "all",
+  const [sort, setSort] = useState<{ column: string; direction: "asc" | "desc" }>({
+    column: "date",
+    direction: "desc",
   });
+
+  const defaultFilters: BillFilters = isSC
+    ? { submitted_by_filter: "all", status: "all" }
+    : { status: "all" };
+
+  const [filters, setFilters] = useState<BillFilters>(defaultFilters);
 
   const [rejectDialog, setRejectDialog] = useState<{
     open: boolean;
@@ -130,6 +136,10 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
   }, [editForm.category_id, dropdownData.categorySubCategories, dropdownData.subCategories]);
 
+  // Ref so fetchBills can read the latest cycles without re-running on every dropdown load
+  const cyclesRef = useRef(dropdownData.cycles);
+  useEffect(() => { cyclesRef.current = dropdownData.cycles; }, [dropdownData.cycles]);
+
   const fetchBills = useCallback(async () => {
     setLoading(true);
     try {
@@ -144,8 +154,8 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           categories:category_id(name),
           subcategories:subcategory_id(name)
         `)
-        .order("date", { ascending: dateSort === "asc" })
-        .order("created_at", { ascending: dateSort === "asc" });
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false });
 
       if (isSC) {
         if (filters.submitted_by_filter === "myself") {
@@ -157,24 +167,38 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         query = query.eq("user_id", userId);
       }
 
-      if (filters.status && filters.status !== "all") {
+      if (filters.statuses && filters.statuses.length > 0) {
+        query = query.in("status", filters.statuses);
+      } else if (filters.status && filters.status !== "all") {
         query = query.eq("status", filters.status);
       }
 
-      if (filters.company_id) {
+      if (filters.vendor_ids && filters.vendor_ids.length > 0) {
+        query = query.in("vendor_id", filters.vendor_ids);
+      }
+
+      if (filters.company_ids && filters.company_ids.length > 0) {
+        query = query.in("company_id", filters.company_ids);
+      } else if (filters.company_id) {
         query = query.eq("company_id", filters.company_id);
+      }
+
+      if (filters.category_ids && filters.category_ids.length > 0) {
+        query = query.in("category_id", filters.category_ids);
+      } else if (filters.category_id) {
+        query = query.eq("category_id", filters.category_id);
+      }
+
+      if (filters.subcategory_ids && filters.subcategory_ids.length > 0) {
+        query = query.in("subcategory_id", filters.subcategory_ids);
       }
 
       if (filters.sc_id) {
         query = query.eq("sc_id", filters.sc_id);
       }
 
-      if (filters.category_id) {
-        query = query.eq("category_id", filters.category_id);
-      }
-
       if (filters.cycle_id && filters.cycle_id !== "all") {
-        const selectedCycle = dropdownData.cycles.find(c => c.id === filters.cycle_id);
+        const selectedCycle = cyclesRef.current.find((c) => c.id === filters.cycle_id);
         if (selectedCycle) {
           query = query.gte("date", selectedCycle.start_date);
           if (selectedCycle.end_date) {
@@ -231,7 +255,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           };
         })
       );
-    } catch (err) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to fetch bills",
@@ -240,17 +264,17 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     } finally {
       setLoading(false);
     }
-  }, [supabase, userId, isSC, filters, dateSort, toast]);
+  }, [supabase, userId, isSC, filters, toast]);
 
   const fetchDropdownData = useCallback(async () => {
     const [
-      companiesRes, 
-      vendorsRes, 
-      categoriesRes, 
+      companiesRes,
+      vendorsRes,
+      categoriesRes,
       subCategoriesRes,
       categorySubCategoriesRes,
-      scUsersRes, 
-      cyclesRes
+      scUsersRes,
+      cyclesRes,
     ] = await Promise.all([
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("vendors").select("id, name").order("name"),
@@ -258,7 +282,10 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       supabase.from("subcategories").select("id, name").order("name"),
       supabase.from("category_subcategories").select("category_id, subcategory_id"),
       supabase.from("sc_cabinets").select("id, name").eq("is_active", true).order("name"),
-      supabase.from("reimbursement_cycles").select("id, name, start_date, end_date").order("created_at", { ascending: false }),
+      supabase
+        .from("reimbursement_cycles")
+        .select("id, name, start_date, end_date")
+        .order("created_at", { ascending: false }),
     ]);
 
     setDropdownData({
@@ -277,10 +304,8 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   }, [fetchBills, refreshKey]);
 
   useEffect(() => {
-    if (isSC) {
-      fetchDropdownData();
-    }
-  }, [isSC, fetchDropdownData]);
+    fetchDropdownData();
+  }, [fetchDropdownData]);
 
   const handleUpdateStatus = async (billId: string, status: string) => {
     try {
@@ -297,9 +322,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
       toast({
         title: "Status updated",
-        description: `Bill marked as ${status.replace('_', ' ')}`,
+        description: `Bill marked as ${status.replace("_", " ")}`,
       });
-    } catch (err) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to update status",
@@ -347,7 +372,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
       setEditDialog({ open: false, bill: null });
       fetchBills();
-    } catch (err) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to update bill",
@@ -380,9 +405,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ 
+        .update({
           status: "rejected",
-          rejected_by_role: "sc"
+          rejected_by_role: "sc",
         })
         .eq("id", rejectDialog.bill.id);
 
@@ -408,10 +433,11 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
       setRejectDialog({ open: false, bill: null, comment: "" });
       fetchBills();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to reject bill";
       toast({
         title: "Error",
-        description: err.message || "Failed to reject bill",
+        description: message,
         variant: "destructive",
       });
     }
@@ -421,9 +447,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ 
+        .update({
           status: "pending",
-          rejected_by_role: null
+          rejected_by_role: null,
         })
         .eq("id", billId);
 
@@ -435,10 +461,11 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       });
 
       fetchBills();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to undo rejection";
       toast({
         title: "Error",
-        description: err.message || "Failed to undo rejection",
+        description: message,
         variant: "destructive",
       });
     }
@@ -446,7 +473,6 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   const handleDeleteBill = async (bill: BillWithRelations) => {
     const confirmed = window.confirm(`Delete bill #${bill.bill_number}? This cannot be undone.`);
-
     if (!confirmed) return;
 
     setDeletingBillId(bill.id);
@@ -454,9 +480,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     try {
       const response = await fetch("/api/bills/delete", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ billId: bill.id }),
       });
 
@@ -465,15 +489,16 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         throw new Error(result.error || "Failed to delete bill");
       }
 
-      setBills((prev) => prev.filter((currentBill) => currentBill.id !== bill.id));
+      setBills((prev) => prev.filter((b) => b.id !== bill.id));
       toast({
         title: "Bill deleted",
         description: "Your submitted bill has been deleted.",
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to delete bill";
       toast({
         title: "Error",
-        description: err.message || "Failed to delete bill",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -481,15 +506,17 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
   };
 
-  const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
+  // ── Derived totals ──────────────────────────────────────────────────────────
 
+  const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
   const pendingAmount = bills
     .filter((b) => b.status === "pending" || b.status === "physical_received")
     .reduce((sum, b) => sum + b.amount, 0);
-
   const reimbursedAmount = bills
     .filter((b) => b.status === "reimbursed")
     .reduce((sum, b) => sum + b.amount, 0);
+
+  // ── Status helpers ──────────────────────────────────────────────────────────
 
   const statusConfig = {
     pending: { label: "Pending", className: "text-muted-foreground" },
@@ -499,38 +526,21 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   };
 
   const getStatusLabel = (bill: BillWithRelations) => {
-    if (bill.status !== "rejected") {
-      return statusConfig[bill.status].label;
-    }
-
-    if (bill.rejected_by_role === "fns") {
-      return "Rejected by FnS";
-    }
-
-    if (bill.rejected_by_role === "sc") {
-      return "Rejected by SC";
-    }
-
+    if (bill.status !== "rejected") return statusConfig[bill.status].label;
+    if (bill.rejected_by_role === "fns") return "Rejected by FnS";
+    if (bill.rejected_by_role === "sc") return "Rejected by SC";
     return "Rejected";
   };
 
-  const getStatusClassName = (bill: BillWithRelations) => {
-    if (bill.status !== "rejected") {
-      return statusConfig[bill.status].className;
-    }
-
-    return "text-destructive";
-  };
+  const getStatusClassName = (bill: BillWithRelations) =>
+    bill.status !== "rejected" ? statusConfig[bill.status].className : "text-destructive";
 
   const renderStatusNote = (bill: BillWithRelations) => {
     if (isSC && bill.fns_comment) {
       return (
-        <p className="mt-2 text-xs text-muted-foreground">
-          FnS: {bill.fns_comment.body}
-        </p>
+        <p className="mt-2 text-xs text-muted-foreground">FnS: {bill.fns_comment.body}</p>
       );
     }
-
     if (bill.rejected_by_role === "sc" && bill.sc_rejection_comment) {
       return (
         <p className="mt-2 text-xs text-muted-foreground">
@@ -538,9 +548,106 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         </p>
       );
     }
-
     return null;
   };
+
+  // ── Client-side sorting ─────────────────────────────────────────────────────
+
+  const sortedBills = useMemo(() => {
+    const sorted = [...bills];
+    sorted.sort((a, b) => {
+      const dir = sort.direction === "asc" ? 1 : -1;
+      switch (sort.column) {
+        case "date":
+          return dir * a.date.localeCompare(b.date);
+        case "submitted_by":
+          return dir * (a.users?.name ?? "").localeCompare(b.users?.name ?? "");
+        case "vendor":
+          return dir * (a.vendors?.name ?? "").localeCompare(b.vendors?.name ?? "");
+        case "company":
+          return dir * (a.companies?.name ?? "").localeCompare(b.companies?.name ?? "");
+        case "category":
+          return dir * (a.categories?.name ?? "").localeCompare(b.categories?.name ?? "");
+        case "sc":
+          return dir * (a.sc_cabinets?.name ?? "").localeCompare(b.sc_cabinets?.name ?? "");
+        case "amount":
+          return dir * (a.amount - b.amount);
+        case "status":
+          return dir * a.status.localeCompare(b.status);
+        default:
+          return 0;
+      }
+    });
+    return sorted;
+  }, [bills, sort]);
+
+  const toggleSort = (column: string) =>
+    setSort((prev) =>
+      prev.column === column
+        ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { column, direction: "asc" }
+    );
+
+  const renderSortHeader = (column: string, label: string) => (
+    <button
+      type="button"
+      onClick={() => toggleSort(column)}
+      className="inline-flex items-center gap-1.5 rounded-sm text-left font-medium transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      {label}
+      {sort.column === column ? (
+        sort.direction === "desc" ? (
+          <ArrowDown className="h-3.5 w-3.5" />
+        ) : (
+          <ArrowUp className="h-3.5 w-3.5" />
+        )
+      ) : (
+        <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+      )}
+    </button>
+  );
+
+  // ── Filter option memos ─────────────────────────────────────────────────────
+
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: "pending", label: "Pending" },
+      { value: "physical_received", label: "Received" },
+      { value: "reimbursed", label: "Reimbursed" },
+      { value: "rejected", label: "Rejected" },
+    ],
+    []
+  );
+
+  const vendorFilterOptions = useMemo(
+    () => dropdownData.vendors.map((v) => ({ value: v.id, label: v.name })),
+    [dropdownData.vendors]
+  );
+
+  const companyFilterOptions = useMemo(
+    () => dropdownData.companies.map((c) => ({ value: c.id, label: c.name })),
+    [dropdownData.companies]
+  );
+
+  const categoryFilterOptions = useMemo(
+    () => dropdownData.categories.map((c) => ({ value: c.id, label: c.name })),
+    [dropdownData.categories]
+  );
+
+  const subcategoryFilterOptions = useMemo(() => {
+    const selectedCategoryIds = filters.category_ids;
+    if (!selectedCategoryIds || selectedCategoryIds.length === 0) {
+      return dropdownData.subCategories.map((sc) => ({ value: sc.id, label: sc.name }));
+    }
+    const validIds = dropdownData.categorySubCategories
+      .filter((cs) => selectedCategoryIds.includes(cs.category_id))
+      .map((cs) => cs.subcategory_id);
+    return dropdownData.subCategories
+      .filter((sc) => validIds.includes(sc.id))
+      .map((sc) => ({ value: sc.id, label: sc.name }));
+  }, [dropdownData.subCategories, dropdownData.categorySubCategories, filters.category_ids]);
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -565,31 +672,31 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         </Card>
       </div>
 
-      {isSC && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-lg">Filters</CardTitle>
-                <CardDescription>Filter bills by various criteria</CardDescription>
-              </div>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => setFilters({ submitted_by_filter: "all", status: "all" })}
-              >
-                Clear Filters
-              </Button>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">Filters</CardTitle>
+              <CardDescription>Filter bills by various criteria</CardDescription>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFilters(defaultFilters)}
+            >
+              Clear Filters
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 bg-muted/50 p-4 rounded-lg">
+            {isSC && (
               <div className="space-y-2">
                 <Label>Submitted By</Label>
                 <Select
-                  value={filters.submitted_by_filter}
+                  value={filters.submitted_by_filter || "all"}
                   onValueChange={(v) =>
-                    setFilters({ ...filters, submitted_by_filter: v as any })
+                    setFilters({ ...filters, submitted_by_filter: v as BillFilters["submitted_by_filter"] })
                   }
                 >
                   <SelectTrigger>
@@ -602,17 +709,82 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   </SelectContent>
                 </Select>
               </div>
+            )}
 
+            <MultiSelectFilter
+              label="Status"
+              placeholder="All Statuses"
+              options={statusFilterOptions}
+              selectedValues={filters.statuses || []}
+              onChange={(values) =>
+                setFilters({
+                  ...filters,
+                  statuses: values.length > 0 ? (values as Bill["status"][]) : undefined,
+                  status: undefined,
+                })
+              }
+            />
+
+            <MultiSelectFilter
+              label="Vendors"
+              placeholder="All Vendors"
+              options={vendorFilterOptions}
+              selectedValues={filters.vendor_ids || []}
+              onChange={(values) =>
+                setFilters({ ...filters, vendor_ids: values.length > 0 ? values : undefined })
+              }
+            />
+
+            <MultiSelectFilter
+              label="Companies"
+              placeholder="All Companies"
+              options={companyFilterOptions}
+              selectedValues={filters.company_ids || []}
+              onChange={(values) =>
+                setFilters({
+                  ...filters,
+                  company_ids: values.length > 0 ? values : undefined,
+                  company_id: undefined,
+                })
+              }
+            />
+
+            <MultiSelectFilter
+              label="Categories"
+              placeholder="All Categories"
+              options={categoryFilterOptions}
+              selectedValues={filters.category_ids || []}
+              onChange={(values) =>
+                setFilters({
+                  ...filters,
+                  category_ids: values.length > 0 ? values : undefined,
+                  category_id: undefined,
+                  subcategory_ids: undefined,
+                })
+              }
+            />
+
+            <MultiSelectFilter
+              label="Subcategories"
+              placeholder="All Subcategories"
+              options={subcategoryFilterOptions}
+              selectedValues={filters.subcategory_ids || []}
+              onChange={(values) =>
+                setFilters({ ...filters, subcategory_ids: values.length > 0 ? values : undefined })
+              }
+            />
+
+            {isSC && (
               <div className="space-y-2">
                 <Label>Cycle</Label>
                 <Select
                   value={filters.cycle_id || "all"}
                   onValueChange={(v) =>
-                    setFilters({ 
-                      ...filters, 
+                    setFilters({
+                      ...filters,
                       cycle_id: v === "all" ? undefined : v,
                       date_from: undefined,
-                      date_to: undefined
+                      date_to: undefined,
                     })
                   }
                 >
@@ -622,73 +794,54 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   <SelectContent>
                     <SelectItem value="all">All Cycles</SelectItem>
                     {dropdownData.cycles.map((cycle) => (
-                      <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
+                      <SelectItem key={cycle.id} value={cycle.id}>
+                        {cycle.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+            )}
 
-              <div className="space-y-2">
-                <Label>From Date</Label>
-                <Input
-                  type="date"
-                  value={filters.date_from || ""}
-                  onChange={(e) => 
-                    setFilters({ 
-                      ...filters, 
-                      date_from: e.target.value || undefined,
-                      cycle_id: undefined
-                    })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>To Date</Label>
-                <Input
-                  type="date"
-                  value={filters.date_to || ""}
-                  onChange={(e) => 
-                    setFilters({ 
-                      ...filters, 
-                      date_to: e.target.value || undefined,
-                      cycle_id: undefined
-                    })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <Select
-                  value={filters.status || "all"}
-                  onValueChange={(v) =>
-                    setFilters({ ...filters, status: v as any })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="physical_received">Received</SelectItem>
-                    <SelectItem value="reimbursed">Reimbursed</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label>From Date</Label>
+              <Input
+                type="date"
+                value={filters.date_from || ""}
+                onChange={(e) =>
+                  setFilters({
+                    ...filters,
+                    date_from: e.target.value || undefined,
+                    cycle_id: undefined,
+                  })
+                }
+              />
             </div>
-          </CardContent>
-        </Card>
-      )}
+
+            <div className="space-y-2">
+              <Label>To Date</Label>
+              <Input
+                type="date"
+                value={filters.date_to || ""}
+                onChange={(e) =>
+                  setFilters({
+                    ...filters,
+                    date_to: e.target.value || undefined,
+                    cycle_id: undefined,
+                  })
+                }
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="space-y-4">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : bills.length === 0 ? (
+        ) : sortedBills.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
@@ -703,33 +856,19 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-foreground">
-                  <th className="px-4 py-3 text-left font-medium">
-                    <button
-                      type="button"
-                      onClick={() => setDateSort((current) => (current === "desc" ? "asc" : "desc"))}
-                      className="inline-flex items-center gap-2 rounded-sm text-left font-medium transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      aria-label={`Sort by date ${dateSort === "desc" ? "oldest first" : "newest first"}`}
-                    >
-                      Date
-                      {dateSort === "desc" ? (
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      ) : (
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium">Submitted By</th>
-                  <th className="px-4 py-3 text-left font-medium">Vendor</th>
-                  <th className="px-4 py-3 text-left font-medium">Company</th>
-                  <th className="px-4 py-3 text-left font-medium">Category</th>
-                  <th className="px-4 py-3 text-left font-medium">SC</th>
-                  <th className="px-4 py-3 text-right font-medium">Amount</th>
-                  <th className="px-4 py-3 text-center font-medium">Status</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("date", "Date")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("submitted_by", "Submitted By")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("vendor", "Vendor")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("company", "Company")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("category", "Category")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("sc", "SC")}</th>
+                  <th className="px-4 py-3 text-right">{renderSortHeader("amount", "Amount")}</th>
+                  <th className="px-4 py-3 text-center">{renderSortHeader("status", "Status")}</th>
                   <th className="px-4 py-3 text-center font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="text-foreground">
-                {bills.map((bill) => {
+                {sortedBills.map((bill) => {
                   const isSubmitter = bill.user_id === userId;
                   const isAssignedSC = bill.sc_cabinets?.user_id === userId;
                   const canTakeAction = isSC && !isSubmitter && isAssignedSC;
@@ -737,17 +876,24 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   const isRejected = bill.status === "rejected";
 
                   return (
-                    <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
+                    <tr
+                      key={bill.id}
+                      className="border-b last:border-0 hover:bg-muted/50 transition-colors"
+                    >
                       <td className="px-4 py-3">{formatDate(bill.date)}</td>
                       <td className="px-4 py-3">
                         {bill.submitted_by_role === "fns" ? "FnS" : bill.users?.name}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-primary">{bill.vendors?.name || "Unknown Vendor"}</div>
+                        <div className="font-medium text-primary">
+                          {bill.vendors?.name || "Unknown Vendor"}
+                        </div>
                         <div className="text-xs text-muted-foreground">#{bill.bill_number}</div>
                       </td>
                       <td className="px-4 py-3">
-                        {bill.companies?.name || <span className="text-muted-foreground">General</span>}
+                        {bill.companies?.name || (
+                          <span className="text-muted-foreground">General</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-primary">{bill.categories?.name}</div>
@@ -828,7 +974,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                                         variant="ghost"
                                         size="sm"
                                         className="h-8 w-8 p-0"
-                                        onClick={() => handleUpdateStatus(bill.id, "physical_received")}
+                                        onClick={() =>
+                                          handleUpdateStatus(bill.id, "physical_received")
+                                        }
                                       >
                                         <CheckCircle2 className="h-4 w-4 text-blue-600" />
                                       </Button>
@@ -895,16 +1043,12 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         )}
       </div>
 
-      <Dialog
-        open={editDialog.open}
-        onOpenChange={(open) => setEditDialog({ open, bill: null })}
-      >
+      {/* Edit Dialog */}
+      <Dialog open={editDialog.open} onOpenChange={(open) => setEditDialog({ open, bill: null })}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Bill Details</DialogTitle>
-            <DialogDescription>
-              Modify the bill information as required.
-            </DialogDescription>
+            <DialogDescription>Modify the bill information as required.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-6 py-4">
             <div className="grid grid-cols-2 gap-4">
@@ -928,7 +1072,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   </SelectTrigger>
                   <SelectContent>
                     {dropdownData.vendors.map((vendor) => (
-                      <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>
+                      <SelectItem key={vendor.id} value={vendor.id}>
+                        {vendor.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -958,14 +1104,18 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                 <Label>Category</Label>
                 <Select
                   value={editForm.category_id}
-                  onValueChange={(v) => setEditForm({ ...editForm, category_id: v, subcategory_id: "" })}
+                  onValueChange={(v) =>
+                    setEditForm({ ...editForm, category_id: v, subcategory_id: "" })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {dropdownData.categories.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                      <SelectItem key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -982,7 +1132,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   </SelectTrigger>
                   <SelectContent>
                     {filteredSubCategories.map((sc) => (
-                      <SelectItem key={sc.id} value={sc.id}>{sc.name}</SelectItem>
+                      <SelectItem key={sc.id} value={sc.id}>
+                        {sc.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -993,7 +1145,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
               <Label>Company (Optional)</Label>
               <Select
                 value={editForm.company_id || "none"}
-                onValueChange={(v) => setEditForm({ ...editForm, company_id: v === "none" ? null : v })}
+                onValueChange={(v) =>
+                  setEditForm({ ...editForm, company_id: v === "none" ? null : v })
+                }
               >
                 <SelectTrigger>
                   <SelectValue placeholder="General" />
@@ -1001,7 +1155,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                 <SelectContent>
                   <SelectItem value="none">General (No Company)</SelectItem>
                   {dropdownData.companies.map((company) => (
-                    <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
+                    <SelectItem key={company.id} value={company.id}>
+                      {company.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1016,9 +1172,16 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         </DialogContent>
       </Dialog>
 
+      {/* Reject Dialog */}
       <Dialog
         open={rejectDialog.open}
-        onOpenChange={(open) => setRejectDialog({ open, bill: open ? rejectDialog.bill : null, comment: open ? rejectDialog.comment : "" })}
+        onOpenChange={(open) =>
+          setRejectDialog({
+            open,
+            bill: open ? rejectDialog.bill : null,
+            comment: open ? rejectDialog.comment : "",
+          })
+        }
       >
         <DialogContent>
           <DialogHeader>
@@ -1036,7 +1199,10 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialog({ open: false, bill: null, comment: "" })}>
+            <Button
+              variant="outline"
+              onClick={() => setRejectDialog({ open: false, bill: null, comment: "" })}
+            >
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleReject}>

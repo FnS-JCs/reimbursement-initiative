@@ -29,7 +29,7 @@ import {
 } from "@/ui/select";
 import { useToast } from "@/lib/use-toast";
 import { normalizeRole } from "@/lib/normalize-role";
-import { Plus, Edit, Loader2, Building2, Store, Tags, Layers, Power, Users } from "lucide-react";
+import { Plus, Edit, Loader2, Building2, Store, Tags, Layers, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Company {
@@ -258,39 +258,6 @@ export function FnSDropdowns() {
     }
   };
 
-  const handleToggleActive = async (type: DropdownType, item: { id: string; name: string; is_active: boolean }, parentId?: string) => {
-    const newActive = !item.is_active;
-    try {
-      if (type === "subcategories" && parentId) {
-        const { error } = await supabase
-          .from("subcategories")
-          .update({ is_active: newActive })
-          .eq("id", item.id);
-        if (error) throw error;
-      } else if (type === "process_types") {
-        const { error } = await supabase
-          .from("process_types")
-          .update({ is_active: newActive })
-          .eq("id", item.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from(getTableName(type))
-          .update({ is_active: newActive })
-          .eq("id", item.id);
-        if (error) throw error;
-      }
-
-      toast({
-        title: newActive ? "Activated" : "Deactivated",
-        description: `"${item.name}" is now ${newActive ? "active" : "inactive"}`,
-      });
-      fetchData();
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Failed to update", variant: "destructive" });
-    }
-  };
-
   const handleDelete = async (type: DropdownType, item: { id: string; name: string }, parentId?: string) => {
     if (!confirm(`Permanently delete "${item.name}"? This cannot be undone.`)) return;
     setSubmitting(true);
@@ -362,23 +329,16 @@ export function FnSDropdowns() {
   const ItemRow = ({
     item,
     onEdit,
-    onToggle,
     onDelete,
-    type,
   }: {
     item: { id: string; name: string; is_active?: boolean };
     onEdit: () => void;
-    onToggle: () => void;
     onDelete: () => void;
-    type: DropdownType;
   }) => (
     <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-full border", !item.is_active && "opacity-50 bg-muted/30")}>
       <span className={cn("text-sm flex-1", !item.is_active && "line-through")}>{item.name}</span>
       <Button variant="ghost" size="sm" onClick={onEdit} className="h-6 px-2">
         <Edit className="h-3 w-3" />
-      </Button>
-      <Button variant="ghost" size="sm" onClick={onToggle} className={cn("h-6 px-2", item.is_active ? "text-amber-500" : "text-green-500")} title={item.is_active ? "Deactivate" : "Activate"}>
-        <Power className="h-3 w-3" />
       </Button>
       <Button variant="ghost" size="sm" onClick={onDelete} className="h-6 px-2 text-destructive">
         <span className="text-xs">×</span>
@@ -422,9 +382,7 @@ export function FnSDropdowns() {
                   <ItemRow
                     key={company.id}
                     item={company}
-                    type="companies"
                     onEdit={() => openEditDialog("companies", company)}
-                    onToggle={() => handleToggleActive("companies", company)}
                     onDelete={() => handleDelete("companies", company)}
                   />
                 ))}
@@ -451,9 +409,7 @@ export function FnSDropdowns() {
                   <ItemRow
                     key={vendor.id}
                     item={vendor}
-                    type="vendors"
                     onEdit={() => openEditDialog("vendors", vendor)}
-                    onToggle={() => handleToggleActive("vendors", vendor)}
                     onDelete={() => handleDelete("vendors", vendor)}
                   />
                 ))}
@@ -482,9 +438,6 @@ export function FnSDropdowns() {
                     <Button variant="ghost" size="sm" onClick={() => openEditDialog("categories", category)} className="h-6 px-2">
                       <Edit className="h-3 w-3" />
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleToggleActive("categories", category)} className={cn("h-6 px-2", category.is_active ? "text-amber-500" : "text-green-500")}>
-                      <Power className="h-3 w-3" />
-                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => handleDelete("categories", category)} className="h-6 px-2 text-destructive">
                       <span className="text-xs">×</span>
                     </Button>
@@ -498,9 +451,7 @@ export function FnSDropdowns() {
                       <ItemRow
                         key={sc.id}
                         item={sc}
-                        type="subcategories"
                         onEdit={() => openEditDialog("subcategories", sc, category.id)}
-                        onToggle={() => handleToggleActive("subcategories", sc, category.id)}
                         onDelete={() => handleDelete("subcategories", sc, category.id)}
                       />
                     ))}
@@ -529,9 +480,7 @@ export function FnSDropdowns() {
                   <ItemRow
                     key={pt.id}
                     item={pt}
-                    type="process_types"
                     onEdit={() => openEditDialog("process_types", pt)}
-                    onToggle={() => handleToggleActive("process_types", pt)}
                     onDelete={() => handleDelete("process_types", pt)}
                   />
                 ))}
@@ -561,15 +510,6 @@ export function FnSDropdowns() {
                         <span className={cn("font-medium", !sc.is_active && "line-through")}>{sc.name}</span>
                         <Button variant="ghost" size="sm" onClick={() => openEditDialog("sc_cabinets", sc)} className="h-7 px-2">
                           <Edit className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleToggleActive("sc_cabinets", sc)}
-                          className={cn("h-7 px-2", sc.is_active ? "text-amber-500" : "text-green-500")}
-                          title={sc.is_active ? "Deactivate" : "Activate"}
-                        >
-                          <Power className="h-3 w-3" />
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => handleDelete("sc_cabinets", sc)} className="h-7 px-2 text-destructive">
                           <span className="text-xs">x</span>
