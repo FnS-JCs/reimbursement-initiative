@@ -71,6 +71,8 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   const [file, setFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
 
+  const formatDate = (d: Date) => d.toISOString().slice(0, 10);
+
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
 
   const isCompanyCategory = isCompanyCategoryById(dropdownData.categories, categoryId);
@@ -295,15 +297,34 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="bill-date">Date of Bill *</Label>
-              <Input
-                id="bill-date"
-                type="date"
-                value={billDate}
-                onChange={(e) => setBillDate(e.target.value)}
-                required
-              />
-            </div>
+                <Label htmlFor="bill-date">Date of Bill *</Label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    id="bill-date"
+                    type="date"
+                    value={billDate}
+                    onChange={(e) => setBillDate(e.target.value)}
+                    required
+                  />
+                  <div className="flex gap-2">
+                    <Button type="button" variant="ghost" className="px-2 py-1" onClick={() => setBillDate(formatDate(new Date()))}>
+                      Today
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="px-2 py-1"
+                      onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() - 1);
+                        setBillDate(formatDate(d));
+                      }}
+                    >
+                      Yesterday
+                    </Button>
+                  </div>
+                </div>
+              </div>
 
             <div className="space-y-2">
               <Label htmlFor="vendor">Vendor *</Label>
