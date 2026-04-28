@@ -13,10 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/ui/select";
-import { Bill, Role, BillFilters } from "@/types";
+import { Bill, Role, BillFilters, BillViewStatus } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
-import { Download, Loader2, FileText } from "lucide-react";
+import { getVisibleBillStatus } from "@/lib/bill-workflow";
+import { Download, Loader2 } from "lucide-react";
 import XLSX from "xlsx-js-style";
 
 interface BillWithRelations extends Bill {
@@ -28,6 +29,12 @@ interface BillWithRelations extends Bill {
   subcategories?: { name: string };
   reimbursement_cycles?: { name: string };
 }
+
+type ExportCell = {
+  v: string | number;
+  s: unknown;
+  l?: { Target: string; Tooltip: string };
+};
 
 const EXPORT_COLUMNS = [
   { id: "serial", label: "Serial No.", default: true },
@@ -109,10 +116,6 @@ export function FnSExport() {
         `)
         .order("date", { ascending: true });
 
-      if (filters.status && filters.status !== "all") {
-        query = query.eq("status", filters.status);
-      }
-
       if (filters.sc_id) {
         query = query.eq("sc_id", filters.sc_id);
       }
@@ -146,8 +149,16 @@ export function FnSExport() {
       const { data, error } = await query;
 
       if (error) throw error;
-      setBills(data || []);
-    } catch (err) {
+      let fetchedBills = data || [];
+
+      if (filters.status && filters.status !== "all") {
+        fetchedBills = fetchedBills.filter(
+          (bill) => getVisibleBillStatus(bill, "fns") === filters.status
+        );
+      }
+
+      setBills(fetchedBills);
+    } catch {
       toast({
         title: "Error",
         description: "Failed to fetch bills for export",
@@ -287,14 +298,14 @@ export function FnSExport() {
           case "submitted_by":
             return { v: bill.submitted_by_role === "fns" ? "FnS" : (bill.users?.name || ""), s: dataStyle };
           case "status":
-            return { v: bill.status, s: dataStyle };
+            return { v: getVisibleBillStatus(bill, "fns"), s: dataStyle };
           default:
             return { v: "", s: dataStyle };
         }
       };
 
       // Prepare data for aoa_to_sheet
-      const rows: any[][] = [headerOrder.map(h => ({ v: h, s: headerStyle }))];
+      const rows: ExportCell[][] = [headerOrder.map((h) => ({ v: h, s: headerStyle }))];
 
       bills.forEach((bill, index) => {
         const row = [
@@ -314,7 +325,7 @@ export function FnSExport() {
           { v: bill.vendors?.name || "", s: dataStyle },
           { v: bill.amount, s: { ...dataStyle, z: '"₹"#,##0.00' } },
           { v: bill.submitted_by_role === "fns" ? "FnS" : (bill.users?.name || ""), s: dataStyle },
-          { v: bill.status, s: dataStyle }
+          { v: getVisibleBillStatus(bill, "fns"), s: dataStyle }
         ];
         rows.push(row);
       });
@@ -358,7 +369,7 @@ export function FnSExport() {
       ws["!views"] = [{ showGridLines: false }];
 
       const buildWorksheet = (sheetBills: BillWithRelations[]) => {
-        const sheetRows: any[][] = [
+        const sheetRows: ExportCell[][] = [
           activeColumns.map((column) => ({ v: column.label, s: headerStyle })),
         ];
 
@@ -554,7 +565,7 @@ export function FnSExport() {
               <Select
                 value={filters.status || "all"}
                 onValueChange={(v) =>
-                  setFilters({ ...filters, status: v === "all" ? undefined : v as any })
+                  setFilters({ ...filters, status: v === "all" ? undefined : v as BillViewStatus })
                 }
               >
                 <SelectTrigger>
@@ -563,7 +574,6 @@ export function FnSExport() {
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="physical_received">Physical Received</SelectItem>
                   <SelectItem value="reimbursed">Reimbursed</SelectItem>
                   <SelectItem value="rejected">Rejected</SelectItem>
                 </SelectContent>

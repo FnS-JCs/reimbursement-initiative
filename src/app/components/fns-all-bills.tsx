@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useTransition } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
+import { Checkbox } from "@/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
 import {
   Select,
@@ -22,20 +23,23 @@ import {
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
 import { Textarea } from "@/ui/textarea";
-import { Bill, Role, BillFilters, BillComment } from "@/types";
+import { Bill, Role, BillFilters, BillComment, BillViewStatus } from "@/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
 import { DriveLinkPreview } from "./drive-link-preview";
 import { MultiSelectFilter } from "./multi-select-filter";
+import { getVisibleBillStatus } from "@/lib/bill-workflow";
 import {
   FileText,
   Edit,
   Loader2,
   XCircle,
   RotateCcw,
+  CheckCircle2,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Calendar,
 } from "lucide-react";
 import {
   Tooltip,
@@ -64,6 +68,8 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   const supabase = createClient();
   const { toast } = useToast();
   const [, startTransition] = useTransition();
+  const dateFromInputRef = useRef<HTMLInputElement | null>(null);
+  const dateToInputRef = useRef<HTMLInputElement | null>(null);
 
   const [bills, setBills] = useState<BillWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +79,16 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   });
 
   const [filters, setFilters] = useState<BillFilters>({});
+
+  const openDatePicker = (ref: React.RefObject<HTMLInputElement | null>) => {
+    const input = ref.current as HTMLInputElement & { showPicker?: () => void } | null;
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+      return;
+    }
+    input.focus();
+  };
 
   const updateFilters = useCallback(
     (updater: (prev: BillFilters) => BillFilters) => {
@@ -105,6 +121,12 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     open: boolean;
     bill: BillWithRelations | null;
   }>({ open: false, bill: null });
+
+  const [selectedBillIds, setSelectedBillIds] = useState<string[]>([]);
+  const [bulkRejectDialog, setBulkRejectDialog] = useState<{ open: boolean; comment: string }>({
+    open: false,
+    comment: "",
+  });
 
   const [rejectDialog, setRejectDialog] = useState<{
     open: boolean;
@@ -202,12 +224,6 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         query = query.in("subcategory_id", filters.subcategory_ids);
       }
 
-      if (filters.statuses && filters.statuses.length > 0) {
-        query = query.in("status", filters.statuses);
-      } else if (filters.status && filters.status !== "all") {
-        query = query.eq("status", filters.status);
-      }
-
       if (filters.cycle_ids && filters.cycle_ids.length > 0) {
         // Cycle ranges may overlap — applied client-side after fetching.
       } else if (filters.cycle_id && filters.cycle_id !== "all") {
@@ -243,6 +259,18 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
             const endsInRange = cycle.end_date ? bill.date <= cycle.end_date : true;
             return startsInRange && endsInRange;
           })
+        );
+      }
+
+      const selectedStatuses = filters.statuses && filters.statuses.length > 0
+        ? filters.statuses
+        : filters.status && filters.status !== "all"
+          ? [filters.status]
+          : [];
+
+      if (selectedStatuses.length > 0) {
+        fetchedBills = fetchedBills.filter((bill) =>
+          selectedStatuses.includes(getVisibleBillStatus(bill, "fns"))
         );
       }
 
@@ -329,6 +357,10 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   useEffect(() => {
     fetchBills();
   }, [fetchBills, refreshKey]);
+
+  useEffect(() => {
+    setSelectedBillIds([]);
+  }, [filters, refreshKey]);
 
   useEffect(() => {
     fetchDropdownData();
@@ -488,34 +520,162 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     }
   };
 
+  const handleMarkReimbursed = async (bill: BillWithRelations) => {
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({ status: "reimbursed", rejected_by_role: null })
+        .eq("id", bill.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Bill reimbursed",
+        description: "Marked as reimbursed",
+      });
+
+      fetchBills();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to mark bill as reimbursed";
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const canMarkReimbursed = (bill: BillWithRelations) =>
+    bill.status === "pending";
+
+  const handleBulkMarkReimbursed = async () => {
+    const targetBills = bills.filter(
+      (bill) => selectedBillIds.includes(bill.id) && canMarkReimbursed(bill)
+    );
+
+    if (targetBills.length === 0) return;
+
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({ status: "reimbursed", rejected_by_role: null })
+        .in("id", targetBills.map((bill) => bill.id));
+
+      if (error) throw error;
+
+      setBills((prev) =>
+        prev.map((bill) =>
+          targetBills.some((target) => target.id === bill.id)
+            ? { ...bill, status: "reimbursed", rejected_by_role: null }
+            : bill
+        )
+      );
+      setSelectedBillIds([]);
+
+      toast({
+        title: "Bills reimbursed",
+        description: `${targetBills.length} bill${targetBills.length === 1 ? "" : "s"} marked as reimbursed`,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to mark bills as reimbursed";
+      toast({ title: "Error", description: message, variant: "destructive" });
+    }
+  };
+
+  const handleBulkReject = async () => {
+    const comment = bulkRejectDialog.comment.trim();
+    if (!comment) {
+      toast({
+        title: "Comment required",
+        description: "Add a reason before rejecting the selected bills.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const targetBills = bills.filter((bill) => selectedBillIds.includes(bill.id) && bill.status !== "rejected");
+    if (targetBills.length === 0) return;
+
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({ status: "rejected", rejected_by_role: "fns" })
+        .in("id", targetBills.map((bill) => bill.id));
+
+      if (error) throw error;
+
+      await Promise.all(
+        targetBills.map((bill) =>
+          supabase.from("bill_comments").upsert(
+            { bill_id: bill.id, author_role: "fns", body: comment },
+            { onConflict: "bill_id,author_role" }
+          )
+        )
+      );
+
+      setBills((prev) =>
+        prev.map((bill) =>
+          targetBills.some((target) => target.id === bill.id)
+            ? { ...bill, status: "rejected", rejected_by_role: "fns" }
+            : bill
+        )
+      );
+      setSelectedBillIds([]);
+      setBulkRejectDialog({ open: false, comment: "" });
+
+      toast({
+        title: "Bills rejected",
+        description: `${targetBills.length} bill${targetBills.length === 1 ? "" : "s"} rejected successfully`,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to reject selected bills";
+      toast({ title: "Error", description: message, variant: "destructive" });
+    }
+  };
+
   // ── Derived totals ──────────────────────────────────────────────────────────
 
   const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
   const pendingAmount = bills
-    .filter((b) => b.status === "pending" || b.status === "physical_received")
+    .filter((b) => getVisibleBillStatus(b, "fns") === "pending")
     .reduce((sum, b) => sum + b.amount, 0);
   const reimbursedAmount = bills
-    .filter((b) => b.status === "reimbursed")
+    .filter((b) => getVisibleBillStatus(b, "fns") === "reimbursed")
     .reduce((sum, b) => sum + b.amount, 0);
 
   // ── Status helpers ──────────────────────────────────────────────────────────
 
   const statusConfig = {
     pending: { label: "Pending", className: "text-muted-foreground" },
-    physical_received: { label: "Received", className: "text-blue-600" },
     reimbursed: { label: "Reimbursed", className: "text-green-600" },
     rejected: { label: "Rejected", className: "text-destructive" },
-  };
+  } satisfies Record<Exclude<BillViewStatus, "paid">, { label: string; className: string }>;
 
   const getStatusLabel = (bill: BillWithRelations) => {
-    if (bill.status !== "rejected") return statusConfig[bill.status].label;
+    const visibleStatus = getVisibleBillStatus(bill, "fns");
+    const displayStatus = visibleStatus === "paid" ? "pending" : visibleStatus;
+    if (displayStatus !== "rejected") return statusConfig[displayStatus].label;
     if (bill.rejected_by_role === "fns") return "Rejected by FnS";
     if (bill.rejected_by_role === "sc") return "Rejected by SC";
     return "Rejected";
   };
 
-  const getStatusClassName = (bill: BillWithRelations) =>
-    bill.status !== "rejected" ? statusConfig[bill.status].className : "text-destructive";
+  const getStatusClassName = (bill: BillWithRelations) => {
+    const visibleStatus = getVisibleBillStatus(bill, "fns");
+    const displayStatus = visibleStatus === "paid" ? "pending" : visibleStatus;
+    return displayStatus !== "rejected"
+      ? statusConfig[displayStatus].className
+      : "text-destructive";
+  };
+
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: "pending", label: "Pending" },
+      { value: "reimbursed", label: "Reimbursed" },
+      { value: "rejected", label: "Rejected" },
+    ],
+    []
+  );
 
   // ── Client-side sorting ─────────────────────────────────────────────────────
 
@@ -539,7 +699,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         case "amount":
           return dir * (a.amount - b.amount);
         case "status":
-          return dir * a.status.localeCompare(b.status);
+          return dir * getVisibleBillStatus(a, "fns").localeCompare(getVisibleBillStatus(b, "fns"));
         default:
           return 0;
       }
@@ -578,16 +738,6 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   const scFilterOptions = useMemo(
     () => dropdownData.scUsers.map((sc) => ({ value: sc.id, label: sc.name })),
     [dropdownData.scUsers]
-  );
-
-  const statusFilterOptions = useMemo(
-    () => [
-      { value: "pending", label: "Pending" },
-      { value: "physical_received", label: "Received" },
-      { value: "reimbursed", label: "Reimbursed" },
-      { value: "rejected", label: "Rejected" },
-    ],
-    []
   );
 
   const cycleFilterOptions = useMemo(
@@ -638,7 +788,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold">{formatCurrency(pendingAmount)}</div>
-            <p className="text-sm text-muted-foreground">Pending Reimbursement</p>
+            <p className="text-sm text-muted-foreground">Pending</p>
           </CardContent>
         </Card>
         <Card>
@@ -690,7 +840,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
               onChange={(values) =>
                 updateFilters((prev) => ({
                   ...prev,
-                  statuses: values.length > 0 ? (values as Bill["status"][]) : undefined,
+                  statuses: values.length > 0 ? (values as BillViewStatus[]) : undefined,
                   status: undefined,
                 }))
               }
@@ -763,33 +913,57 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
             />
             <div className="space-y-2">
               <Label>From Date</Label>
-              <Input
-                type="date"
-                value={filters.date_from || ""}
-                onChange={(e) =>
-                  updateFilters((prev) => ({
-                    ...prev,
-                    date_from: e.target.value || undefined,
-                    cycle_id: undefined,
-                    cycle_ids: undefined,
-                  }))
-                }
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  ref={dateFromInputRef}
+                  type="date"
+                  value={filters.date_from || ""}
+                  onChange={(e) =>
+                    updateFilters((prev) => ({
+                      ...prev,
+                      date_from: e.target.value || undefined,
+                      cycle_id: undefined,
+                      cycle_ids: undefined,
+                    }))
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => openDatePicker(dateFromInputRef)}
+                  aria-label="Open from-date calendar"
+                >
+                  <Calendar className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label>To Date</Label>
-              <Input
-                type="date"
-                value={filters.date_to || ""}
-                onChange={(e) =>
-                  updateFilters((prev) => ({
-                    ...prev,
-                    date_to: e.target.value || undefined,
-                    cycle_id: undefined,
-                    cycle_ids: undefined,
-                  }))
-                }
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  ref={dateToInputRef}
+                  type="date"
+                  value={filters.date_to || ""}
+                  onChange={(e) =>
+                    updateFilters((prev) => ({
+                      ...prev,
+                      date_to: e.target.value || undefined,
+                      cycle_id: undefined,
+                      cycle_ids: undefined,
+                    }))
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => openDatePicker(dateToInputRef)}
+                  aria-label="Open to-date calendar"
+                >
+                  <Calendar className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -809,10 +983,31 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
             </CardContent>
           </Card>
         ) : (
+          <div className="space-y-3">
+            {selectedBillIds.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/60 px-4 py-3">
+                <p className="text-sm text-muted-foreground">
+                  {selectedBillIds.length} bill{selectedBillIds.length === 1 ? "" : "s"} selected
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" onClick={handleBulkMarkReimbursed}>
+                    Reimburse
+                  </Button>
+                  <Button type="button" variant="destructive" onClick={() => setBulkRejectDialog({ open: true, comment: "" })}>
+                    Reject Selected
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => setSelectedBillIds([])}>
+                    Clear Selection
+                  </Button>
+                </div>
+              </div>
+            )}
+
           <div className="rounded-lg border bg-card overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-foreground">
+                  <th className="px-4 py-3 text-left w-12"><span className="sr-only">Select</span></th>
                   <th className="px-4 py-3 text-left">{renderSortHeader("date", "Date")}</th>
                   <th className="px-4 py-3 text-left">{renderSortHeader("submitted_by", "Submitted By")}</th>
                   <th className="px-4 py-3 text-left">{renderSortHeader("vendor", "Vendor")}</th>
@@ -827,6 +1022,17 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
               <tbody className="text-foreground">
                 {sortedBills.map((bill) => (
                   <tr key={bill.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
+                    <td className="px-4 py-3 align-top">
+                      <Checkbox
+                        className="transition-all duration-200 hover:scale-110 active:scale-95 data-[state=checked]:scale-110"
+                        checked={selectedBillIds.includes(bill.id)}
+                        onCheckedChange={(checked) =>
+                          setSelectedBillIds((prev) =>
+                            checked ? [...prev, bill.id] : prev.filter((id) => id !== bill.id)
+                          )
+                        }
+                      />
+                    </td>
                     <td className="px-4 py-3">{formatDate(bill.date)}</td>
                     <td className="px-4 py-3">
                       {bill.submitted_by_role === "fns" ? "FnS" : bill.users?.name}
@@ -916,6 +1122,24 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                             </Tooltip>
                           )}
 
+                          {canMarkReimbursed(bill) && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => handleMarkReimbursed(bill)}
+                                >
+                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Reimburse</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+
                           {bill.file_url && <DriveLinkPreview fileUrl={bill.file_url} />}
                         </div>
                       </TooltipProvider>
@@ -925,8 +1149,36 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
               </tbody>
             </table>
           </div>
+          </div>
         )}
       </div>
+
+      <Dialog open={bulkRejectDialog.open} onOpenChange={(open) => setBulkRejectDialog({ open, comment: "" })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Selected Bills</DialogTitle>
+            <DialogDescription>
+              Add one rejection note that will be applied to every selected bill.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="bulk-reject-comment">Rejection comment</Label>
+            <Textarea
+              id="bulk-reject-comment"
+              value={bulkRejectDialog.comment}
+              onChange={(e) => setBulkRejectDialog((prev) => ({ ...prev, comment: e.target.value }))}
+              rows={4}
+              placeholder="Add the reason for rejection"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkRejectDialog({ open: false, comment: "" })}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkReject}>Reject Selected</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={editDialog.open} onOpenChange={(open) => setEditDialog({ open, bill: null })}>
@@ -948,7 +1200,6 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="physical_received">Physical Received</SelectItem>
                     <SelectItem value="reimbursed">Reimbursed</SelectItem>
                     <SelectItem value="rejected">Rejected</SelectItem>
                   </SelectContent>

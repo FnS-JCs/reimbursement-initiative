@@ -69,7 +69,8 @@ export interface ReimbursementCycle {
   created_at: string;
 }
 
-export type BillStatus = 'pending' | 'physical_received' | 'reimbursed' | 'rejected';
+export type BillStatus = 'pending' | 'reimbursed' | 'rejected';
+export type BillViewStatus = 'pending' | 'reimbursed' | 'paid' | 'rejected';
 
 export interface Bill {
   id: string;
@@ -86,6 +87,7 @@ export interface Bill {
   process_type: string | null;
   file_url: string | null;
   status: BillStatus;
+  is_reimbursed: boolean;
   rejected_by_role?: 'sc' | 'fns' | null;
   created_at: string;
 }
@@ -127,8 +129,8 @@ export interface BillFormData {
 export interface BillFilters {
   submitted_by_filter?: 'jcs' | 'myself' | 'all';
   bill_type?: 'company' | 'general' | 'all';
-  status?: BillStatus | 'all';
-  statuses?: BillStatus[];
+  status?: BillViewStatus | 'all';
+  statuses?: BillViewStatus[];
   company_id?: string;
   company_ids?: string[];
   vendor_ids?: string[];

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
+import { Checkbox } from "@/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/ui/card";
 import {
   Select,
@@ -22,11 +23,13 @@ import {
 import { Input } from "@/ui/input";
 import { Label } from "@/ui/label";
 import { Textarea } from "@/ui/textarea";
-import { Bill, Role, BillFilters, BillComment } from "@/types";
+import { Bill, Role, BillFilters, BillComment, BillViewStatus } from "@/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/lib/use-toast";
 import { DriveLinkPreview } from "./drive-link-preview";
 import { MultiSelectFilter } from "./multi-select-filter";
+import { getVisibleBillStatus } from "@/lib/bill-workflow";
+import { normalizeRole } from "@/lib/normalize-role";
 import {
   CheckCircle2,
   XCircle,
@@ -37,6 +40,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Calendar,
   Trash2,
 } from "lucide-react";
 import {
@@ -68,8 +72,14 @@ interface BillWithRelations extends Bill {
 export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) {
   const supabase = createClient();
   const { toast } = useToast();
+  const normalizedRole = normalizeRole(userRole);
+  const isJC = normalizedRole === "jc";
+  const isSCUser = normalizedRole === "sc";
+  const workflowRole = isJC ? "jc" : isSCUser ? "sc" : "fns";
 
   const [bills, setBills] = useState<BillWithRelations[]>([]);
+  const dateFromInputRef = useRef<HTMLInputElement | null>(null);
+  const dateToInputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<{ column: string; direction: "asc" | "desc" }>({
     column: "date",
@@ -81,6 +91,16 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     : { status: "all" };
 
   const [filters, setFilters] = useState<BillFilters>(defaultFilters);
+
+  const openDatePicker = (ref: React.RefObject<HTMLInputElement | null>) => {
+    const input = ref.current as HTMLInputElement & { showPicker?: () => void } | null;
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+      return;
+    }
+    input.focus();
+  };
 
   const [rejectDialog, setRejectDialog] = useState<{
     open: boolean;
@@ -105,6 +125,11 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
+  const [selectedBillIds, setSelectedBillIds] = useState<string[]>([]);
+  const [bulkRejectDialog, setBulkRejectDialog] = useState<{ open: boolean; comment: string }>({
+    open: false,
+    comment: "",
+  });
 
   const [dropdownData, setDropdownData] = useState<{
     companies: { id: string; name: string }[];
@@ -167,12 +192,6 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         query = query.eq("user_id", userId);
       }
 
-      if (filters.statuses && filters.statuses.length > 0) {
-        query = query.in("status", filters.statuses);
-      } else if (filters.status && filters.status !== "all") {
-        query = query.eq("status", filters.status);
-      }
-
       if (filters.vendor_ids && filters.vendor_ids.length > 0) {
         query = query.in("vendor_id", filters.vendor_ids);
       }
@@ -218,7 +237,19 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
       if (error) throw error;
 
-      const fetchedBills = data || [];
+      let fetchedBills = data || [];
+      const selectedStatuses = filters.statuses && filters.statuses.length > 0
+        ? filters.statuses
+        : filters.status && filters.status !== "all"
+          ? [filters.status]
+          : [];
+
+      if (selectedStatuses.length > 0) {
+        fetchedBills = fetchedBills.filter((bill) =>
+          selectedStatuses.includes(getVisibleBillStatus(bill, workflowRole))
+        );
+      }
+
       const billIds = fetchedBills.map((bill) => bill.id);
       let commentsByBill = new Map<string, { fns?: BillComment; sc?: BillComment }>();
 
@@ -264,7 +295,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     } finally {
       setLoading(false);
     }
-  }, [supabase, userId, isSC, filters, toast]);
+  }, [supabase, userId, isSC, workflowRole, filters, toast]);
 
   const fetchDropdownData = useCallback(async () => {
     const [
@@ -304,30 +335,86 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   }, [fetchBills, refreshKey]);
 
   useEffect(() => {
+    setSelectedBillIds([]);
+  }, [filters, refreshKey]);
+
+  useEffect(() => {
     fetchDropdownData();
   }, [fetchDropdownData]);
 
-  const handleUpdateStatus = async (billId: string, status: string) => {
+  const handleUpdateStatus = async (billId: string, status: Bill["status"]) => {
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ status, rejected_by_role: null })
+        .update({ is_reimbursed: status === "reimbursed", rejected_by_role: null })
         .eq("id", billId);
 
       if (error) throw error;
 
       setBills((prev) =>
-        prev.map((b) => (b.id === billId ? { ...b, status: status as Bill["status"] } : b))
+        prev.map((b) =>
+          b.id === billId ? { ...b, is_reimbursed: status === "reimbursed", rejected_by_role: null } : b
+        )
       );
 
       toast({
         title: "Status updated",
-        description: `Bill marked as ${status.replace("_", " ")}`,
+        description: "Bill marked as paid",
       });
     } catch {
       toast({
         title: "Error",
         description: "Failed to update status",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkStatusUpdate = async (status: Bill["status"]) => {
+    const targetBills = bills.filter((bill) => selectedBillIds.includes(bill.id));
+    const eligibleBills = targetBills.filter((bill) => {
+      if (status === "reimbursed") {
+        const visibleStatus = getVisibleBillStatus(bill, "sc");
+        return visibleStatus === "pending" || visibleStatus === "reimbursed";
+      }
+      if (status === "rejected") return bill.status !== "rejected";
+      return false;
+    });
+
+    if (eligibleBills.length === 0) return;
+
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({
+          is_reimbursed: status === "reimbursed" ? true : undefined,
+          rejected_by_role: status === "rejected" ? "sc" : null,
+        })
+        .in("id", eligibleBills.map((bill) => bill.id));
+
+      if (error) throw error;
+
+      setBills((prev) =>
+        prev.map((bill) =>
+          eligibleBills.some((target) => target.id === bill.id)
+            ? {
+                ...bill,
+                is_reimbursed: status === "reimbursed" ? true : bill.is_reimbursed,
+                rejected_by_role: status === "rejected" ? "sc" : null,
+              }
+            : bill
+        )
+      );
+      setSelectedBillIds([]);
+
+      toast({
+        title: "Bills updated",
+        description: `${eligibleBills.length} bill${eligibleBills.length === 1 ? "" : "s"} updated successfully`,
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to update selected bills",
         variant: "destructive",
       });
     }
@@ -506,34 +593,113 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
   };
 
+  const handleBulkReject = async () => {
+    const comment = bulkRejectDialog.comment.trim();
+    if (!comment) {
+      toast({
+        title: "Comment required",
+        description: "Add a reason before rejecting the selected bills.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const targetBills = bills.filter((bill) => selectedBillIds.includes(bill.id) && bill.status !== "rejected");
+    if (targetBills.length === 0) return;
+
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({ status: "rejected", rejected_by_role: "sc" })
+        .in("id", targetBills.map((bill) => bill.id));
+
+      if (error) throw error;
+
+      await Promise.all(
+        targetBills.map((bill) =>
+          supabase.from("bill_comments").upsert(
+            { bill_id: bill.id, author_role: "sc", body: comment },
+            { onConflict: "bill_id,author_role" }
+          )
+        )
+      );
+
+      setBills((prev) =>
+        prev.map((bill) =>
+          targetBills.some((target) => target.id === bill.id)
+            ? { ...bill, status: "rejected", rejected_by_role: "sc" }
+            : bill
+        )
+      );
+      setSelectedBillIds([]);
+      setBulkRejectDialog({ open: false, comment: "" });
+
+      toast({
+        title: "Bills rejected",
+        description: `${targetBills.length} bill${targetBills.length === 1 ? "" : "s"} rejected successfully`,
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to reject selected bills",
+        variant: "destructive",
+      });
+    }
+  };
+
   // ── Derived totals ──────────────────────────────────────────────────────────
 
   const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
   const pendingAmount = bills
-    .filter((b) => b.status === "pending" || b.status === "physical_received")
+    .filter((b) => getVisibleBillStatus(b, workflowRole) === "pending")
     .reduce((sum, b) => sum + b.amount, 0);
   const reimbursedAmount = bills
-    .filter((b) => b.status === "reimbursed")
+    .filter((b) => {
+      const visibleStatus = getVisibleBillStatus(b, workflowRole);
+      return visibleStatus === "reimbursed" || visibleStatus === "paid";
+    })
     .reduce((sum, b) => sum + b.amount, 0);
 
   // ── Status helpers ──────────────────────────────────────────────────────────
 
   const statusConfig = {
     pending: { label: "Pending", className: "text-muted-foreground" },
-    physical_received: { label: "Received", className: "text-blue-600" },
-    reimbursed: { label: "Reimbursed", className: "text-green-600" },
+    reimbursed: { label: isJC ? "Reimbursed" : "Reimbursed", className: "text-blue-600" },
+    paid: { label: isJC ? "Reimbursed" : "Paid", className: "text-green-600" },
     rejected: { label: "Rejected", className: "text-destructive" },
-  };
+  } satisfies Record<BillViewStatus, { label: string; className: string }>;
 
   const getStatusLabel = (bill: BillWithRelations) => {
-    if (bill.status !== "rejected") return statusConfig[bill.status].label;
+    const visibleStatus = getVisibleBillStatus(bill, workflowRole);
+    if (visibleStatus !== "rejected") return statusConfig[visibleStatus].label;
     if (bill.rejected_by_role === "fns") return "Rejected by FnS";
     if (bill.rejected_by_role === "sc") return "Rejected by SC";
     return "Rejected";
   };
 
   const getStatusClassName = (bill: BillWithRelations) =>
-    bill.status !== "rejected" ? statusConfig[bill.status].className : "text-destructive";
+    getVisibleBillStatus(bill, workflowRole) !== "rejected"
+      ? statusConfig[getVisibleBillStatus(bill, workflowRole)].className
+      : "text-destructive";
+
+  const getStatusActionLabel = () => "Mark as Paid";
+
+  const statusFilterOptions = useMemo(() => {
+    if (isJC) {
+      return [
+        { value: "pending", label: "Pending" },
+        { value: "reimbursed", label: "Reimbursed" },
+        { value: "rejected", label: "Rejected" },
+      ];
+    }
+
+    return [
+      { value: "pending", label: "Pending" },
+      { value: "reimbursed", label: "Reimbursed" },
+      { value: "paid", label: "Paid" },
+      { value: "rejected", label: "Rejected" },
+    ];
+  }, [isJC]);
 
   const renderStatusNote = (bill: BillWithRelations) => {
     if (isSC && bill.fns_comment) {
@@ -573,13 +739,13 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         case "amount":
           return dir * (a.amount - b.amount);
         case "status":
-          return dir * a.status.localeCompare(b.status);
+          return dir * getVisibleBillStatus(a, workflowRole).localeCompare(getVisibleBillStatus(b, workflowRole));
         default:
           return 0;
       }
     });
     return sorted;
-  }, [bills, sort]);
+  }, [bills, sort, workflowRole]);
 
   const toggleSort = (column: string) =>
     setSort((prev) =>
@@ -608,16 +774,6 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   );
 
   // ── Filter option memos ─────────────────────────────────────────────────────
-
-  const statusFilterOptions = useMemo(
-    () => [
-      { value: "pending", label: "Pending" },
-      { value: "physical_received", label: "Received" },
-      { value: "reimbursed", label: "Reimbursed" },
-      { value: "rejected", label: "Rejected" },
-    ],
-    []
-  );
 
   const vendorFilterOptions = useMemo(
     () => dropdownData.vendors.map((v) => ({ value: v.id, label: v.name })),
@@ -655,13 +811,17 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold">{formatCurrency(pendingAmount)}</div>
-            <p className="text-sm text-muted-foreground">Pending Reimbursement</p>
+            <p className="text-sm text-muted-foreground">
+              {isJC ? "Pending" : "Pending Reimbursement"}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold text-green-600">{formatCurrency(reimbursedAmount)}</div>
-            <p className="text-sm text-muted-foreground">Reimbursed</p>
+            <p className="text-sm text-muted-foreground">
+              {isJC ? "Reimbursed" : "Reimbursed / Paid"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -719,7 +879,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
               onChange={(values) =>
                 setFilters({
                   ...filters,
-                  statuses: values.length > 0 ? (values as Bill["status"][]) : undefined,
+                  statuses: values.length > 0 ? (values as BillViewStatus[]) : undefined,
                   status: undefined,
                 })
               }
@@ -805,32 +965,56 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
             <div className="space-y-2">
               <Label>From Date</Label>
-              <Input
-                type="date"
-                value={filters.date_from || ""}
-                onChange={(e) =>
-                  setFilters({
-                    ...filters,
-                    date_from: e.target.value || undefined,
-                    cycle_id: undefined,
-                  })
-                }
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  ref={dateFromInputRef}
+                  type="date"
+                  value={filters.date_from || ""}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      date_from: e.target.value || undefined,
+                      cycle_id: undefined,
+                    })
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => openDatePicker(dateFromInputRef)}
+                  aria-label="Open from-date calendar"
+                >
+                  <Calendar className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label>To Date</Label>
-              <Input
-                type="date"
-                value={filters.date_to || ""}
-                onChange={(e) =>
-                  setFilters({
-                    ...filters,
-                    date_to: e.target.value || undefined,
-                    cycle_id: undefined,
-                  })
-                }
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  ref={dateToInputRef}
+                  type="date"
+                  value={filters.date_to || ""}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      date_to: e.target.value || undefined,
+                      cycle_id: undefined,
+                    })
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => openDatePicker(dateToInputRef)}
+                  aria-label="Open to-date calendar"
+                >
+                  <Calendar className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -852,10 +1036,35 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
             </CardContent>
           </Card>
         ) : (
+          <div className="space-y-3">
+            {isSCUser && selectedBillIds.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/60 px-4 py-3">
+                <p className="text-sm text-muted-foreground">
+                  {selectedBillIds.length} bill{selectedBillIds.length === 1 ? "" : "s"} selected
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate("reimbursed")}
+                  >
+                    Mark as Paid
+                  </Button>
+                  <Button type="button" variant="destructive" onClick={() => setBulkRejectDialog({ open: true, comment: "" })}>
+                    Reject Selected
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => setSelectedBillIds([])}>
+                    Clear Selection
+                  </Button>
+                </div>
+              </div>
+            )}
+
           <div className="rounded-lg border bg-card overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-foreground">
+                  {isSCUser && <th className="px-4 py-3 text-left w-12"><span className="sr-only">Select</span></th>}
                   <th className="px-4 py-3 text-left">{renderSortHeader("date", "Date")}</th>
                   <th className="px-4 py-3 text-left">{renderSortHeader("submitted_by", "Submitted By")}</th>
                   <th className="px-4 py-3 text-left">{renderSortHeader("vendor", "Vendor")}</th>
@@ -874,12 +1083,28 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   const canTakeAction = isSC && !isSubmitter && isAssignedSC;
                   const canDeleteOwnBill = isSubmitter;
                   const isRejected = bill.status === "rejected";
+                  const visibleStatus = getVisibleBillStatus(bill, "sc");
 
                   return (
                     <tr
                       key={bill.id}
                       className="border-b last:border-0 hover:bg-muted/50 transition-colors"
                     >
+                      {isSCUser && (
+                        <td className="px-4 py-3 align-top">
+                          <Checkbox
+                            className="transition-all duration-200 hover:scale-110 active:scale-95 data-[state=checked]:scale-110"
+                            checked={selectedBillIds.includes(bill.id)}
+                            onCheckedChange={(checked) =>
+                              setSelectedBillIds((prev) =>
+                                checked
+                                  ? [...prev, bill.id]
+                                  : prev.filter((id) => id !== bill.id)
+                              )
+                            }
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3">{formatDate(bill.date)}</td>
                       <td className="px-4 py-3">
                         {bill.submitted_by_role === "fns" ? "FnS" : bill.users?.name}
@@ -967,27 +1192,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                                   </Tooltip>
                                 )}
 
-                                {bill.status === "pending" && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 w-8 p-0"
-                                        onClick={() =>
-                                          handleUpdateStatus(bill.id, "physical_received")
-                                        }
-                                      >
-                                        <CheckCircle2 className="h-4 w-4 text-blue-600" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Mark received</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
-
-                                {bill.status === "physical_received" && (
+                                {isSCUser && (visibleStatus === "pending" || visibleStatus === "reimbursed") && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <Button
@@ -996,11 +1201,11 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                                         className="h-8 w-8 p-0"
                                         onClick={() => handleUpdateStatus(bill.id, "reimbursed")}
                                       >
-                                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                        <CheckCircle2 className="h-4 w-4 text-blue-600" />
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                      <p>Mark reimbursed</p>
+                                      <p>{getStatusActionLabel()}</p>
                                     </TooltipContent>
                                   </Tooltip>
                                 )}
@@ -1040,8 +1245,36 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
               </tbody>
             </table>
           </div>
+          </div>
         )}
       </div>
+
+      <Dialog open={bulkRejectDialog.open} onOpenChange={(open) => setBulkRejectDialog({ open, comment: "" })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Selected Bills</DialogTitle>
+            <DialogDescription>
+              Add one rejection note that will be applied to every selected bill.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="bulk-reject-comment">Rejection comment</Label>
+            <Textarea
+              id="bulk-reject-comment"
+              value={bulkRejectDialog.comment}
+              onChange={(e) => setBulkRejectDialog((prev) => ({ ...prev, comment: e.target.value }))}
+              rows={4}
+              placeholder="Add the reason for rejection"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkRejectDialog({ open: false, comment: "" })}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkReject}>Reject Selected</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={editDialog.open} onOpenChange={(open) => setEditDialog({ open, bill: null })}>
