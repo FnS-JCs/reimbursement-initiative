@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/supabase/client";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/ui/select";
 import { Alert, AlertDescription } from "@/ui/alert";
-import { AlertCircle, Upload, Loader2, X } from "lucide-react";
+import { AlertCircle, Upload, Loader2, X, Calendar } from "lucide-react";
 import { Role } from "@/types";
 import { cn } from "@/lib/utils";
 import { normalizeRole } from "@/lib/normalize-role";
@@ -70,8 +70,19 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
   const [amount, setAmount] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  const dateInputRef = useRef<HTMLInputElement | null>(null);
 
   const formatDate = (d: Date) => d.toISOString().slice(0, 10);
+
+  const openDatePicker = () => {
+    const input = dateInputRef.current as HTMLInputElement & { showPicker?: () => void } | null;
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+      return;
+    }
+    input.focus();
+  };
 
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
 
@@ -296,17 +307,32 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
           )}
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
+              <div className="space-y-2">
                 <Label htmlFor="bill-date">Date of Bill *</Label>
-                <div className="flex items-center gap-3">
-                  <Input
-                    id="bill-date"
-                    type="date"
-                    value={billDate}
-                    onChange={(e) => setBillDate(e.target.value)}
-                    required
-                  />
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="flex flex-1 items-center gap-2 rounded-md border bg-background px-3">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="bill-date"
+                      ref={dateInputRef}
+                      type="date"
+                      value={billDate}
+                      onChange={(e) => setBillDate(e.target.value)}
+                      className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                      required
+                    />
+                  </div>
                   <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={openDatePicker}
+                        aria-label="Open calendar picker"
+                        title="Open calendar picker"
+                      >
+                        <Calendar className="h-4 w-4" />
+                      </Button>
                     <Button type="button" variant="ghost" className="px-2 py-1" onClick={() => setBillDate(formatDate(new Date()))}>
                       Today
                     </Button>
@@ -448,6 +474,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
                 placeholder="0.00"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
+                className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 required
               />
             </div>
