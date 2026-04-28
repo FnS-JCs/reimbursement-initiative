@@ -184,6 +184,13 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       return;
     }
 
+    // Require a bill file for new submissions
+    if (!file) {
+      setError("Please upload a bill photo (JPG/PNG/PDF) before submitting");
+      setLoading(false);
+      return;
+    }
+
     try {
       // Check for duplicate bill (same vendor and bill number, case-insensitive)
       const { data: existingBill, error: checkError } = await supabase
@@ -426,7 +433,7 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
           </div>
 
           <div className="space-y-2">
-            <Label>Bill Upload</Label>
+            <Label>Bill Upload *</Label>
             <div className="flex items-center gap-4">
               <label
                 htmlFor="file-input"
