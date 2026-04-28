@@ -64,6 +64,7 @@ export interface ReimbursementCycle {
   name: string;
   start_date: string;
   end_date: string | null;
+  is_active?: boolean;
   is_closed: boolean;
   created_at: string;
 }
