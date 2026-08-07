@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
 /**
  * This endpoint initiates the OAuth 2.0 flow to get authorization
  * User will be redirected to Google login and will grant Drive access

@@ -1,4 +1,28 @@
+import { promises as fs } from "fs";
+import path from "path";
 import { NextRequest, NextResponse } from "next/server";
+
+const persistEnvValue = async (key: string, value: string) => {
+  const envPath = path.resolve(process.cwd(), ".env.local");
+  let content = "";
+
+  try {
+    content = await fs.readFile(envPath, "utf8");
+  } catch {
+    content = "";
+  }
+
+  const linePattern = new RegExp(`^${key}=.*$`, "m");
+  const entry = `${key}=${value}`;
+
+  if (linePattern.test(content)) {
+    content = content.replace(linePattern, entry);
+  } else {
+    content = content ? `${content}\n${entry}` : entry;
+  }
+
+  await fs.writeFile(envPath, content, "utf8");
+};
 
 /**
  * This endpoint handles the OAuth callback from Google
@@ -96,6 +120,9 @@ export async function GET(request: NextRequest) {
     console.log("📋 Refresh Token:", refreshToken);
     console.log("\n⚠️  Add this to your .env.local:");
     console.log(`GOOGLE_DRIVE_REFRESH_TOKEN=${refreshToken}`);
+
+    process.env.GOOGLE_DRIVE_REFRESH_TOKEN = refreshToken;
+    await persistEnvValue("GOOGLE_DRIVE_REFRESH_TOKEN", refreshToken);
 
     // Redirect to page component to display the refresh token
     const redirectUrl = new URL(`${baseUrl}/auth/google-drive-callback`);

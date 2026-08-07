@@ -4,6 +4,8 @@ import { Readable } from "stream";
 const GOOGLE_DRIVE_REAUTH_MESSAGE =
   "Google Drive authorization has expired or was revoked. Re-authorize at /api/auth/google-drive-authorize, update GOOGLE_DRIVE_REFRESH_TOKEN in .env.local, then restart the app.";
 
+const FALLBACK_FOLDER_NAME = "Reimbursement Bills";
+
 // Get OAuth access token using refresh token
 const getAccessToken = async (): Promise<string> => {
   const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
@@ -67,6 +69,42 @@ const getGoogleDriveClient = async () => {
   return google.drive({ version: "v3", auth });
 };
 
+const ensureDriveFolder = async (drive: any, folderId: string): Promise<string> => {
+  try {
+    const folderCheck = await drive.files.get({
+      fileId: folderId,
+      fields: "id,name",
+    });
+
+    console.log(`✅ Verified folder access: ${folderCheck.data.name || folderId}`);
+    return folderId;
+  } catch (folderError: any) {
+    console.warn(`⚠️ Folder ${folderId} is not accessible (${folderError?.message || "unknown error"}). Attempting to create a fallback folder.`);
+
+    try {
+      const createdFolder = await drive.files.create({
+        requestBody: {
+          name: FALLBACK_FOLDER_NAME,
+          mimeType: "application/vnd.google-apps.folder",
+        },
+        fields: "id,name",
+      });
+
+      const createdFolderId = createdFolder.data.id;
+      if (!createdFolderId) {
+        throw new Error("Google Drive did not return a folder ID for the fallback folder.");
+      }
+
+      process.env.GOOGLE_DRIVE_FOLDER_ID = createdFolderId;
+      console.log(`✅ Created fallback Google Drive folder: ${createdFolder.data.name || FALLBACK_FOLDER_NAME}`);
+      return createdFolderId;
+    } catch (createError: any) {
+      console.error("❌ Unable to create a fallback Google Drive folder:", createError?.message || createError);
+      throw createError;
+    }
+  }
+};
+
 // Format filename: SC Name || Date || Vendor || Bill Number
 export const formatFileName = (
   scName: string,
@@ -96,23 +134,13 @@ export const uploadBillToGoogleDrive = async (
     console.log(`📝 File name: ${fileName}`);
     console.log(`📊 File size: ${fileBuffer.length} bytes`);
 
-    // First, verify we can access the parent folder
-    try {
-      const folderCheck = await drive.files.get({
-        fileId: folderId,
-        fields: "id,name,webViewLink",
-      });
-      console.log(`✅ Verified folder access: ${folderCheck.data.name}`);
-    } catch (folderError: any) {
-      console.error(`❌ Cannot access parent folder:`, folderError.message);
-      throw folderError;
-    }
+    const resolvedFolderId = await ensureDriveFolder(drive, folderId);
 
     // Upload file to the specified folder
     const response = await drive.files.create({
       requestBody: {
         name: fileName,
-        parents: [folderId],
+        parents: [resolvedFolderId],
       },
       media: {
         mimeType: "application/octet-stream",
