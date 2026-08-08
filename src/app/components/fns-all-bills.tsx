@@ -656,11 +656,14 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   // ── Derived totals ──────────────────────────────────────────────────────────
 
   const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
-  const pendingAmount = bills
-    .filter((b) => getVisibleBillStatus(b, "fns") === "pending")
+  const pendingReimbursementAmount = bills
+    .filter((b) => b.reimbursed === null && b.paid !== "rejected")
     .reduce((sum, b) => sum + b.amount, 0);
   const reimbursedAmount = bills
-    .filter((b) => getVisibleBillStatus(b, "fns") === "reimbursed")
+    .filter((b) => b.reimbursed === "reimbursed")
+    .reduce((sum, b) => sum + b.amount, 0);
+  const rejectedAmount = bills
+    .filter((b) => b.paid === "rejected" || b.reimbursed === "rejected")
     .reduce((sum, b) => sum + b.amount, 0);
 
   // ── Status helpers ──────────────────────────────────────────────────────────
@@ -807,11 +810,11 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{formatCurrency(pendingAmount)}</div>
-            <p className="text-sm text-muted-foreground">Pending</p>
+            <div className="text-2xl font-bold">{formatCurrency(pendingReimbursementAmount)}</div>
+            <p className="text-sm text-muted-foreground">Pending Reimbursement</p>
           </CardContent>
         </Card>
         <Card>
@@ -822,8 +825,14 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         </Card>
         <Card>
           <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-destructive">{formatCurrency(rejectedAmount)}</div>
+            <p className="text-sm text-muted-foreground">Rejected</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
             <div className="text-2xl font-bold">{formatCurrency(totalAmount)}</div>
-            <p className="text-sm text-muted-foreground">Grand Total</p>
+            <p className="text-sm text-muted-foreground">Total Bills</p>
           </CardContent>
         </Card>
       </div>

@@ -686,14 +686,27 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   // ── Derived totals ──────────────────────────────────────────────────────────
 
   const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
-  const pendingAmount = bills
-    .filter((b) => getVisibleBillStatus(b, workflowRole) === "pending")
+
+  // JC: paid to them (by SC) vs pending to be paid (by SC)
+  const jcPaidAmount = bills
+    .filter((b) => b.paid === "paid")
     .reduce((sum, b) => sum + b.amount, 0);
-  const reimbursedAmount = bills
-    .filter((b) => {
-      const visibleStatus = getVisibleBillStatus(b, workflowRole);
-      return visibleStatus === "paid" || visibleStatus === "reimbursed";
-    })
+  const jcPendingAmount = bills
+    .filter((b) => b.paid === null && b.reimbursed !== "rejected")
+    .reduce((sum, b) => sum + b.amount, 0);
+
+  // SC: reimbursement from FnS and payments made to JCs
+  const scPendingReimbursementAmount = bills
+    .filter((b) => b.reimbursed === null && b.paid !== "rejected")
+    .reduce((sum, b) => sum + b.amount, 0);
+  const scReimbursedAmount = bills
+    .filter((b) => b.reimbursed === "reimbursed")
+    .reduce((sum, b) => sum + b.amount, 0);
+  const scPendingPaidAmount = bills
+    .filter((b) => b.paid === null && b.reimbursed !== "rejected")
+    .reduce((sum, b) => sum + b.amount, 0);
+  const scPaidAmount = bills
+    .filter((b) => b.paid === "paid")
     .reduce((sum, b) => sum + b.amount, 0);
 
   // ── Status helpers ──────────────────────────────────────────────────────────
@@ -856,30 +869,61 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{formatCurrency(pendingAmount)}</div>
-            <p className="text-sm text-muted-foreground">
-              {isJC ? "Pending" : "Pending Reimbursement"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(reimbursedAmount)}</div>
-            <p className="text-sm text-muted-foreground">
-              {isJC ? "Reimbursed" : "Reimbursed / Paid"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{formatCurrency(totalAmount)}</div>
-            <p className="text-sm text-muted-foreground">Grand Total</p>
-          </CardContent>
-        </Card>
-      </div>
+      {isJC ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(jcPaidAmount)}</div>
+              <p className="text-sm text-muted-foreground">Paid to you</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-2xl font-bold">{formatCurrency(jcPendingAmount)}</div>
+              <p className="text-sm text-muted-foreground">Pending Payment</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-2xl font-bold">{formatCurrency(jcPaidAmount + jcPendingAmount)}</div>
+              <p className="text-sm text-muted-foreground">Total</p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-2xl font-bold">{formatCurrency(scPendingReimbursementAmount)}</div>
+              <p className="text-sm text-muted-foreground">Pending Reimbursement</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(scReimbursedAmount)}</div>
+              <p className="text-sm text-muted-foreground">Reimbursed</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-2xl font-bold">{formatCurrency(scPendingPaidAmount)}</div>
+              <p className="text-sm text-muted-foreground">Pending Payment</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(scPaidAmount)}</div>
+              <p className="text-sm text-muted-foreground">Paid</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-2xl font-bold">{formatCurrency(totalAmount)}</div>
+              <p className="text-sm text-muted-foreground">Total</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
