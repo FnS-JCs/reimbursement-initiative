@@ -83,7 +83,7 @@ function LoginPageContent() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Reimbursement Portal</CardTitle>
           <CardDescription>
-            Sign in with your whitelisted Google account
+            The Placement Cell, SRCC
           </CardDescription>
         </CardHeader>
         <CardContent>
