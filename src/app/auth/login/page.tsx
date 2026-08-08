@@ -70,8 +70,9 @@ function LoginPageContent() {
       if (data.url) {
         window.location.href = data.url;
       }
-    } catch (err: any) {
-      setError(err.message || "Google login failed");
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      setError(e.message || "Google login failed");
       setLoading(false);
     }
   }

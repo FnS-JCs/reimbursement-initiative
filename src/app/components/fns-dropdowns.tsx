@@ -222,8 +222,9 @@ export function FnSDropdowns() {
       setAddDialog({ open: false, type: "companies" });
       setAddForm({ name: "" });
       fetchData();
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Failed to add item", variant: "destructive" });
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      toast({ title: "Error", description: e.message || "Failed to add item", variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -251,8 +252,9 @@ export function FnSDropdowns() {
       setEditDialog({ open: false, type: "companies", item: { id: "", name: "" } });
       setEditForm({ name: "" });
       fetchData();
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Failed to update item", variant: "destructive" });
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      toast({ title: "Error", description: e.message || "Failed to update item", variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -273,8 +275,9 @@ export function FnSDropdowns() {
 
       toast({ title: "Deleted", description: "Item has been permanently deleted" });
       fetchData();
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Failed to delete", variant: "destructive" });
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      toast({ title: "Error", description: e.message || "Failed to delete", variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -297,13 +300,16 @@ export function FnSDropdowns() {
       });
 
       fetchData();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const code = (err as any)?.code;
       toast({
         title: "Error",
         description:
-          err.code === "23505"
+          code === "23505"
             ? "That SC account is already linked to another SC/Cabinet."
-            : err.message || "Failed to update SC mapping",
+            : e.message || "Failed to update SC mapping",
         variant: "destructive",
       });
     }

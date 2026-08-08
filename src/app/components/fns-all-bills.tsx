@@ -135,7 +135,6 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   }>({ open: false, bill: null, comment: "" });
 
   const [editForm, setEditForm] = useState({
-    status: "pending" as Bill["status"],
     amount: "",
     vendor_id: "",
     category_id: "",
@@ -165,7 +164,6 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
     const bill = editDialog.bill;
     setEditForm({
-      status: bill.status,
       amount: bill.amount.toString(),
       vendor_id: bill.vendor_id,
       category_id: bill.category_id,
@@ -302,13 +300,13 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
       setBills(
         fetchedBills.map((bill) => {
-          const comments = commentsByBill.get(bill.id);
-          return {
-            ...bill,
-            fns_comment: comments?.fns || null,
-            sc_rejection_comment: comments?.sc || null,
-          };
-        })
+            const comments = commentsByBill.get(bill.id);
+            return {
+              ...bill,
+              fns_comment: comments?.fns || null,
+              sc_rejection_comment: comments?.sc || null,
+            };
+          })
       );
     } catch {
       toast({
@@ -374,18 +372,9 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     if (!editDialog.bill) return;
 
     try {
-      const nextStatus = editForm.status;
-      const nextRejectedByRole =
-        nextStatus === "rejected"
-          ? editDialog.bill.status === "rejected"
-            ? editDialog.bill.rejected_by_role || "fns"
-            : "fns"
-          : null;
       const { error } = await supabase
         .from("bills")
         .update({
-          status: nextStatus,
-          rejected_by_role: nextRejectedByRole,
           amount: parseFloat(editForm.amount),
           vendor_id: editForm.vendor_id,
           category_id: editForm.category_id,
@@ -455,8 +444,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       const { error } = await supabase
         .from("bills")
         .update({
-          status: "rejected",
-          rejected_by_role: "fns",
+          reimbursed: "rejected",
         })
         .eq("id", rejectDialog.bill.id);
 
@@ -497,8 +485,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       const { error } = await supabase
         .from("bills")
         .update({
-          status: "pending",
-          rejected_by_role: null,
+          reimbursed: null,
         })
         .eq("id", bill.id);
 
@@ -506,7 +493,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
 
       toast({
         title: "Rejection undone",
-        description: "The bill status has been reset to pending",
+        description: "The reimbursement decision has been reset to pending",
       });
 
       fetchBills();
@@ -524,7 +511,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ status: "reimbursed", rejected_by_role: null })
+        .update({ reimbursed: "reimbursed" })
         .eq("id", bill.id);
 
       if (error) throw error;
@@ -545,8 +532,35 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     }
   };
 
+  const handleUndoReimbursed = async (bill: BillWithRelations) => {
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({
+          reimbursed: null,
+        })
+        .eq("id", bill.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Reimbursement undone",
+        description: "The reimbursement decision has been reset to pending",
+      });
+
+      fetchBills();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to undo reimbursement";
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  };
+
   const canMarkReimbursed = (bill: BillWithRelations) =>
-    bill.status === "pending";
+    bill.reimbursed === null;
 
   const handleBulkMarkReimbursed = async () => {
     const targetBills = bills.filter(
@@ -558,7 +572,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ status: "reimbursed", rejected_by_role: null })
+        .update({ reimbursed: "reimbursed" })
         .in("id", targetBills.map((bill) => bill.id));
 
       if (error) throw error;
@@ -566,7 +580,10 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       setBills((prev) =>
         prev.map((bill) =>
           targetBills.some((target) => target.id === bill.id)
-            ? { ...bill, status: "reimbursed", rejected_by_role: null }
+            ? {
+                ...bill,
+                reimbursed: "reimbursed",
+              }
             : bill
         )
       );
@@ -593,13 +610,13 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       return;
     }
 
-    const targetBills = bills.filter((bill) => selectedBillIds.includes(bill.id) && bill.status !== "rejected");
+    const targetBills = bills.filter((bill) => selectedBillIds.includes(bill.id) && bill.reimbursed === null);
     if (targetBills.length === 0) return;
 
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ status: "rejected", rejected_by_role: "fns" })
+        .update({ reimbursed: "rejected" })
         .in("id", targetBills.map((bill) => bill.id));
 
       if (error) throw error;
@@ -616,7 +633,10 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
       setBills((prev) =>
         prev.map((bill) =>
           targetBills.some((target) => target.id === bill.id)
-            ? { ...bill, status: "rejected", rejected_by_role: "fns" }
+            ? {
+                ...bill,
+                reimbursed: "rejected",
+              }
             : bill
         )
       );
@@ -654,13 +674,16 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   const getStatusLabel = (bill: BillWithRelations) => {
     const visibleStatus = getVisibleBillStatus(bill, "fns");
     const displayStatus = visibleStatus === "paid" ? "pending" : visibleStatus;
-    if (displayStatus !== "rejected") return statusConfig[displayStatus].label;
-    if (bill.rejected_by_role === "fns") return "Rejected by FnS";
-    if (bill.rejected_by_role === "sc") return "Rejected by SC";
-    return "Rejected";
+    const reimbursementLabel = displayStatus !== "rejected"
+      ? statusConfig[displayStatus].label
+      : "Rejected by FnS";
+    return bill.paid === "rejected"
+      ? `${reimbursementLabel} · Rejected by SC`
+      : reimbursementLabel;
   };
 
   const getStatusClassName = (bill: BillWithRelations) => {
+    if (bill.paid === "rejected") return "text-destructive";
     const visibleStatus = getVisibleBillStatus(bill, "fns");
     const displayStatus = visibleStatus === "paid" ? "pending" : visibleStatus;
     return displayStatus !== "rejected"
@@ -1058,12 +1081,12 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                       <span className={`font-medium ${getStatusClassName(bill)}`}>
                         {getStatusLabel(bill)}
                       </span>
-                      {bill.rejected_by_role === "fns" && bill.fns_comment && (
+                      {bill.reimbursed === "rejected" && bill.fns_comment && (
                         <p className="mt-2 text-xs text-muted-foreground">
                           FnS: {bill.fns_comment.body}
                         </p>
                       )}
-                      {bill.rejected_by_role === "sc" && bill.sc_rejection_comment && (
+                      {bill.paid === "rejected" && bill.sc_rejection_comment && (
                         <p className="mt-2 text-xs text-muted-foreground">
                           SC: {bill.sc_rejection_comment.body}
                         </p>
@@ -1088,7 +1111,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                             </TooltipContent>
                           </Tooltip>
 
-                          {bill.status === "rejected" ? (
+                          {bill.reimbursed === "rejected" ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
@@ -1104,40 +1127,56 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                                 <p>Undo rejection</p>
                               </TooltipContent>
                             </Tooltip>
+                          ) : bill.reimbursed === "reimbursed" ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => handleUndoReimbursed(bill)}
+                                >
+                                  <RotateCcw className="h-4 w-4 text-green-600" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Undo reimbursement</p>
+                              </TooltipContent>
+                            </Tooltip>
                           ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 w-8 p-0"
-                                  onClick={() => openRejectDialog(bill)}
-                                >
-                                  <XCircle className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Reject bill</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
+                            <>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => openRejectDialog(bill)}
+                                  >
+                                    <XCircle className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Reject bill</p>
+                                </TooltipContent>
+                              </Tooltip>
 
-                          {canMarkReimbursed(bill) && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 w-8 p-0"
-                                  onClick={() => handleMarkReimbursed(bill)}
-                                >
-                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Reimburse</p>
-                              </TooltipContent>
-                            </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => handleMarkReimbursed(bill)}
+                                  >
+                                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Reimburse</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </>
                           )}
 
                           {bill.file_url && <DriveLinkPreview fileUrl={bill.file_url} />}
@@ -1189,22 +1228,6 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           </DialogHeader>
           <div className="grid gap-6 py-4">
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <Select
-                  value={editForm.status}
-                  onValueChange={(v) => setEditForm({ ...editForm, status: v as Bill["status"] })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="reimbursed">Reimbursed</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="space-y-2">
                 <Label>Amount (INR)</Label>
                 <Input

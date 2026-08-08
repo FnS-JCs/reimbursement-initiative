@@ -214,7 +214,7 @@ GOOGLE_DRIVE_REFRESH_TOKEN=your_refresh_token_here
 
 **Important:** 
 - Client Secret is committed to repo (acceptable for OAuth 2.0 with refresh tokens in production)
-- Refresh token must be kept private (stored in .env.local, never in version control)
+- Refresh token must be kept private (stored in `.env.local` locally and in Vercel environment variables in production, never in version control)
 - Folder ID can be changed to switch to a different Drive folder (for new seasons)
 
 ---

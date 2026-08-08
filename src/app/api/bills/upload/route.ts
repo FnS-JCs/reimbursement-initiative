@@ -72,15 +72,14 @@ export async function POST(request: NextRequest) {
       },
       { status: 200 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
     console.error("❌ Bill upload error:", {
-      message: error.message,
-      stack: error.stack,
-      code: error.code,
-      status: error.status,
+      message: err.message,
+      stack: err.stack,
     });
     return NextResponse.json(
-      { error: error.message || "Failed to upload bill" },
+      { error: err.message || "Failed to upload bill" },
       { status: 500 }
     );
   }

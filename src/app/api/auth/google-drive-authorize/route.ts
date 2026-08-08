@@ -7,7 +7,7 @@ const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
  * This endpoint initiates the OAuth 2.0 flow to get authorization
  * User will be redirected to Google login and will grant Drive access
  */
-export async function GET(request: NextRequest) {
+export async function GET(_: NextRequest) {
   try {
     const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
     const redirectUri = `${process.env.NODE_ENV === "production" ? "https://reimbursement-app-ruby.vercel.app" : "http://localhost:3000"}/api/auth/google-drive-callback`;
@@ -44,10 +44,11 @@ export async function GET(request: NextRequest) {
 
     console.log("🔐 Generated OAuth state:", state);
     return response;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("OAuth authorization error:", error);
+    const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { error: error.message || "Failed to initiate OAuth flow" },
+      { error: message || "Failed to initiate OAuth flow" },
       { status: 500 }
     );
   }

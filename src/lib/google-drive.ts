@@ -1,8 +1,8 @@
-import { google } from "googleapis";
+import { google, drive_v3 } from "googleapis";
 import { Readable } from "stream";
 
 const GOOGLE_DRIVE_REAUTH_MESSAGE =
-  "Google Drive authorization has expired or was revoked. Re-authorize at /api/auth/google-drive-authorize, update GOOGLE_DRIVE_REFRESH_TOKEN in .env.local, then restart the app.";
+  "Google Drive authorization has expired or was revoked. Re-authorize at /api/auth/google-drive-authorize, then update GOOGLE_DRIVE_REFRESH_TOKEN in your deployed environment (Vercel env vars in production, .env.local locally) and redeploy or restart.";
 
 const FALLBACK_FOLDER_NAME = "Reimbursement Bills";
 
@@ -47,14 +47,15 @@ const getAccessToken = async (): Promise<string> => {
 
     const data = await response.json();
     return data.access_token;
-  } catch (error: any) {
-    console.error("Failed to get access token:", error.message);
-    throw error;
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Failed to get access token:", msg);
+    throw new Error(msg);
   }
 };
 
 // Initialize Google Drive API client with OAuth
-const getGoogleDriveClient = async () => {
+const getGoogleDriveClient = async (): Promise<drive_v3.Drive> => {
   const accessToken = await getAccessToken();
 
   const auth = new google.auth.OAuth2(
@@ -68,8 +69,7 @@ const getGoogleDriveClient = async () => {
 
   return google.drive({ version: "v3", auth });
 };
-
-const ensureDriveFolder = async (drive: any, folderId: string): Promise<string> => {
+const ensureDriveFolder = async (drive: drive_v3.Drive, folderId: string): Promise<string> => {
   try {
     const folderCheck = await drive.files.get({
       fileId: folderId,
@@ -78,8 +78,9 @@ const ensureDriveFolder = async (drive: any, folderId: string): Promise<string> 
 
     console.log(`✅ Verified folder access: ${folderCheck.data.name || folderId}`);
     return folderId;
-  } catch (folderError: any) {
-    console.warn(`⚠️ Folder ${folderId} is not accessible (${folderError?.message || "unknown error"}). Attempting to create a fallback folder.`);
+  } catch (folderError: unknown) {
+    const folderMsg = folderError instanceof Error ? folderError.message : String(folderError);
+    console.warn(`⚠️ Folder ${folderId} is not accessible (${folderMsg || "unknown error"}). Attempting to create a fallback folder.`);
 
     try {
       const createdFolder = await drive.files.create({
@@ -98,9 +99,10 @@ const ensureDriveFolder = async (drive: any, folderId: string): Promise<string> 
       process.env.GOOGLE_DRIVE_FOLDER_ID = createdFolderId;
       console.log(`✅ Created fallback Google Drive folder: ${createdFolder.data.name || FALLBACK_FOLDER_NAME}`);
       return createdFolderId;
-    } catch (createError: any) {
-      console.error("❌ Unable to create a fallback Google Drive folder:", createError?.message || createError);
-      throw createError;
+    } catch (createError: unknown) {
+      const createMsg = createError instanceof Error ? createError.message : String(createError);
+      console.error("❌ Unable to create a fallback Google Drive folder:", createMsg);
+      throw new Error(createMsg);
     }
   }
 };
@@ -169,8 +171,9 @@ export const uploadBillToGoogleDrive = async (
         fields: "id",
       });
       console.log("✅ Permissions set successfully");
-    } catch (permError: any) {
-      console.error("⚠️  Permission error (non-critical):", permError.message);
+    } catch (permError: unknown) {
+      const permMsg = permError instanceof Error ? permError.message : String(permError);
+      console.error("⚠️  Permission error (non-critical):", permMsg);
       // Don't throw - file is already uploaded
     }
 
@@ -178,14 +181,10 @@ export const uploadBillToGoogleDrive = async (
     const shareableLink = `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
 
     return { fileId, shareableLink };
-  } catch (error: any) {
-    console.error("❌ Google Drive upload error details:", {
-      message: error.message,
-      code: error.code,
-      status: error.status,
-      statusText: error.statusText,
-    });
-    throw new Error(`Failed to upload file to Google Drive: ${error.message}`);
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error("❌ Google Drive upload error details:", errMsg);
+    throw new Error(`Failed to upload file to Google Drive: ${errMsg}`);
   }
 };
 
@@ -210,18 +209,20 @@ export const deleteBillFromGoogleDrive = async (fileId: string): Promise<void> =
     await drive.files.delete({
       fileId,
     });
-  } catch (error: any) {
-    if (error?.code === 404) {
-      return;
-    }
+  } catch (error: unknown) {
+    const e = error instanceof Error ? error : new Error(String(error));
+    // If it's a 404 from Drive client, swallow
+    // Try to read a 'code' property if present
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const code = (error as any)?.code;
+    if (code === 404) return;
 
     console.error("Failed to delete Google Drive file:", {
       fileId,
-      message: error?.message,
-      code: error?.code,
-      status: error?.status,
+      message: e.message,
+      code,
     });
-    throw new Error(`Failed to delete file from Google Drive: ${error?.message || "Unknown error"}`);
+    throw new Error(`Failed to delete file from Google Drive: ${e.message || "Unknown error"}`);
   }
 };
 
@@ -235,8 +236,9 @@ export const verifyFolderAccess = async (folderId: string): Promise<boolean> => 
       fields: "id",
     });
     return true;
-  } catch (error: any) {
-    console.error(`Failed to access folder ${folderId}:`, error.message);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to access folder ${folderId}:`, msg);
     return false;
   }
 };

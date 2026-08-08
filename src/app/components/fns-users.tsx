@@ -77,10 +77,11 @@ export function FnSUsers() {
       }
 
       setUsers(result.users || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
       toast({
         title: "Error",
-        description: err.message || "Failed to fetch users",
+        description: e.message || "Failed to fetch users",
         variant: "destructive",
       });
     } finally {
@@ -130,10 +131,11 @@ export function FnSUsers() {
 
       setEditDialog({ open: false, user: null });
       fetchUsers();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
       toast({
         title: "Error",
-        description: err.message || "Failed to update user",
+        description: e.message || "Failed to update user",
         variant: "destructive",
       });
     } finally {
@@ -165,10 +167,11 @@ export function FnSUsers() {
       setAddDialog(false);
       setAddForm(emptyUserForm());
       fetchUsers();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
       toast({
         title: "Error",
-        description: err.message || "Failed to add user",
+        description: e.message || "Failed to add user",
         variant: "destructive",
       });
     } finally {
@@ -208,10 +211,11 @@ export function FnSUsers() {
 
       setStatusDialog({ open: false, user: null });
       fetchUsers();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
       toast({
         title: "Error",
-        description: err.message || "Failed to update user status",
+        description: e.message || "Failed to update user status",
         variant: "destructive",
       });
     } finally {

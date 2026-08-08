@@ -44,7 +44,11 @@ function CallbackContent() {
       const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
       if (exchangeError) {
-        redirectToLogin(router, "oauth_exchange_failed", exchangeError.message);
+        redirectToLogin(
+          router,
+          "oauth_exchange_failed",
+          "Your sign-in session expired. Please sign in with Google again."
+        );
         return;
       }
 

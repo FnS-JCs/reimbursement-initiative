@@ -64,9 +64,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
     return NextResponse.json(
-      { error: error?.message || "Failed to delete bill" },
+      { error: err.message || "Failed to delete bill" },
       { status: 500 }
     );
   }

@@ -283,8 +283,9 @@ export function BillForm({ userId, userRole, onSuccess }: BillFormProps) {
       setFile(null);
       setFilePreview(null);
       onSuccess();
-    } catch (err: any) {
-      setError(err.message || "Failed to submit bill");
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      setError(e.message || "Failed to submit bill");
     } finally {
       setLoading(false);
       setUploading(false);

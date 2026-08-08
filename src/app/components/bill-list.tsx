@@ -278,13 +278,13 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
       setBills(
         fetchedBills.map((bill) => {
-          const comments = commentsByBill.get(bill.id);
-          return {
-            ...bill,
-            fns_comment: comments?.fns || null,
-            sc_rejection_comment: comments?.sc || null,
-          };
-        })
+            const comments = commentsByBill.get(bill.id);
+            return {
+              ...bill,
+              fns_comment: comments?.fns || null,
+              sc_rejection_comment: comments?.sc || null,
+            };
+          })
       );
     } catch {
       toast({
@@ -342,23 +342,30 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     fetchDropdownData();
   }, [fetchDropdownData]);
 
-  const handleUpdateStatus = async (billId: string, status: Bill["status"]) => {
+  const handleMarkPaid = async (billId: string) => {
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ is_reimbursed: status === "reimbursed", rejected_by_role: null })
+        .update({
+          paid: "paid",
+        })
         .eq("id", billId);
 
       if (error) throw error;
 
       setBills((prev) =>
         prev.map((b) =>
-          b.id === billId ? { ...b, is_reimbursed: status === "reimbursed", rejected_by_role: null } : b
+          b.id === billId
+            ? {
+                ...b,
+                paid: "paid",
+              }
+            : b
         )
       );
 
       toast({
-        title: "Status updated",
+        title: "Bill marked as paid",
         description: "Bill marked as paid",
       });
     } catch {
@@ -370,15 +377,45 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
   };
 
-  const handleBulkStatusUpdate = async (status: Bill["status"]) => {
+  const handleUndoPaid = async (billId: string) => {
+    try {
+      const { error } = await supabase
+        .from("bills")
+        .update({
+          paid: null,
+        })
+        .eq("id", billId);
+
+      if (error) throw error;
+
+      setBills((prev) =>
+        prev.map((b) =>
+          b.id === billId
+            ? {
+                ...b,
+                paid: null,
+              }
+            : b
+        )
+      );
+
+      toast({
+        title: "Payment decision undone",
+        description: "The payment decision has been reset to pending",
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to undo payment decision",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkMarkPaid = async () => {
     const targetBills = bills.filter((bill) => selectedBillIds.includes(bill.id));
     const eligibleBills = targetBills.filter((bill) => {
-      if (status === "reimbursed") {
-        const visibleStatus = getVisibleBillStatus(bill, "sc");
-        return visibleStatus === "pending" || visibleStatus === "reimbursed";
-      }
-      if (status === "rejected") return bill.status !== "rejected";
-      return false;
+      return bill.paid === null;
     });
 
     if (eligibleBills.length === 0) return;
@@ -387,8 +424,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       const { error } = await supabase
         .from("bills")
         .update({
-          is_reimbursed: status === "reimbursed" ? true : undefined,
-          rejected_by_role: status === "rejected" ? "sc" : null,
+          paid: "paid",
         })
         .in("id", eligibleBills.map((bill) => bill.id));
 
@@ -399,8 +435,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           eligibleBills.some((target) => target.id === bill.id)
             ? {
                 ...bill,
-                is_reimbursed: status === "reimbursed" ? true : bill.is_reimbursed,
-                rejected_by_role: status === "rejected" ? "sc" : null,
+                paid: "paid",
               }
             : bill
         )
@@ -493,8 +528,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       const { error } = await supabase
         .from("bills")
         .update({
-          status: "rejected",
-          rejected_by_role: "sc",
+          paid: "rejected",
         })
         .eq("id", rejectDialog.bill.id);
 
@@ -535,8 +569,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       const { error } = await supabase
         .from("bills")
         .update({
-          status: "pending",
-          rejected_by_role: null,
+          paid: null,
         })
         .eq("id", billId);
 
@@ -544,7 +577,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
       toast({
         title: "Rejection undone",
-        description: "The bill status has been reset to pending",
+        description: "The payment decision has been reset to pending",
       });
 
       fetchBills();
@@ -604,13 +637,13 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       return;
     }
 
-    const targetBills = bills.filter((bill) => selectedBillIds.includes(bill.id) && bill.status !== "rejected");
+    const targetBills = bills.filter((bill) => selectedBillIds.includes(bill.id) && bill.paid === null);
     if (targetBills.length === 0) return;
 
     try {
       const { error } = await supabase
         .from("bills")
-        .update({ status: "rejected", rejected_by_role: "sc" })
+        .update({ paid: "rejected" })
         .in("id", targetBills.map((bill) => bill.id));
 
       if (error) throw error;
@@ -627,7 +660,10 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       setBills((prev) =>
         prev.map((bill) =>
           targetBills.some((target) => target.id === bill.id)
-            ? { ...bill, status: "rejected", rejected_by_role: "sc" }
+            ? {
+                ...bill,
+                paid: "rejected",
+              }
             : bill
         )
       );
@@ -656,7 +692,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   const reimbursedAmount = bills
     .filter((b) => {
       const visibleStatus = getVisibleBillStatus(b, workflowRole);
-      return visibleStatus === "reimbursed" || visibleStatus === "paid";
+      return visibleStatus === "paid" || visibleStatus === "reimbursed";
     })
     .reduce((sum, b) => sum + b.amount, 0);
 
@@ -664,16 +700,17 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
   const statusConfig = {
     pending: { label: "Pending", className: "text-muted-foreground" },
-    reimbursed: { label: isJC ? "Reimbursed" : "Reimbursed", className: "text-blue-600" },
-    paid: { label: isJC ? "Reimbursed" : "Paid", className: "text-green-600" },
+    reimbursed: { label: "Reimbursed", className: "text-blue-600" },
+    paid: { label: "Paid", className: "text-green-600" },
     rejected: { label: "Rejected", className: "text-destructive" },
   } satisfies Record<BillViewStatus, { label: string; className: string }>;
 
   const getStatusLabel = (bill: BillWithRelations) => {
     const visibleStatus = getVisibleBillStatus(bill, workflowRole);
     if (visibleStatus !== "rejected") return statusConfig[visibleStatus].label;
-    if (bill.rejected_by_role === "fns") return "Rejected by FnS";
-    if (bill.rejected_by_role === "sc") return "Rejected by SC";
+    if (isJC) return "Rejected by SC";
+    if (bill.paid === "rejected") return "Rejected by SC";
+    if (bill.reimbursed === "rejected") return "Rejected by FnS";
     return "Rejected";
   };
 
@@ -682,12 +719,24 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
       ? statusConfig[getVisibleBillStatus(bill, workflowRole)].className
       : "text-destructive";
 
+  const getStatusTitle = (bill: BillWithRelations) => {
+    if (!isSCUser) return getStatusLabel(bill);
+    const paidLabel = bill.paid === "paid" ? "Paid" : bill.paid === "rejected" ? "Rejected" : "Pending";
+    const reimbursedLabel = bill.reimbursed === "reimbursed"
+      ? "Reimbursed"
+      : bill.reimbursed === "rejected"
+        ? "Rejected"
+        : "Pending";
+    return `Paid: ${paidLabel}. FnS: ${reimbursedLabel}.`;
+  };
+
   const getStatusActionLabel = () => "Mark as Paid";
 
   const statusFilterOptions = useMemo(() => {
     if (isJC) {
       return [
         { value: "pending", label: "Pending" },
+        { value: "paid", label: "Paid" },
         { value: "reimbursed", label: "Reimbursed" },
         { value: "rejected", label: "Rejected" },
       ];
@@ -707,7 +756,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         <p className="mt-2 text-xs text-muted-foreground">FnS: {bill.fns_comment.body}</p>
       );
     }
-    if (bill.rejected_by_role === "sc" && bill.sc_rejection_comment) {
+    if (bill.paid === "rejected" && bill.sc_rejection_comment) {
       return (
         <p className="mt-2 text-xs text-muted-foreground">
           SC: {bill.sc_rejection_comment.body}
@@ -1046,7 +1095,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => handleBulkStatusUpdate("reimbursed")}
+                    onClick={handleBulkMarkPaid}
                   >
                     Mark as Paid
                   </Button>
@@ -1082,8 +1131,6 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   const isAssignedSC = bill.sc_cabinets?.user_id === userId;
                   const canTakeAction = isSC && !isSubmitter && isAssignedSC;
                   const canDeleteOwnBill = isSubmitter;
-                  const isRejected = bill.status === "rejected";
-                  const visibleStatus = getVisibleBillStatus(bill, "sc");
 
                   return (
                     <tr
@@ -1132,7 +1179,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                         {formatCurrency(bill.amount)}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span className={`font-medium ${getStatusClassName(bill)}`}>
+                        <span title={getStatusTitle(bill)} className={`whitespace-nowrap font-medium ${getStatusClassName(bill)}`}>
                           {getStatusLabel(bill)}
                         </span>
                         {renderStatusNote(bill)}
@@ -1158,7 +1205,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                                   </TooltipContent>
                                 </Tooltip>
 
-                                {isRejected ? (
+                                {bill.paid === "rejected" ? (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <Button
@@ -1174,40 +1221,56 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                                       <p>Undo rejection</p>
                                     </TooltipContent>
                                   </Tooltip>
+                                ) : bill.paid === "paid" ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => handleUndoPaid(bill.id)}
+                                      >
+                                        <RotateCcw className="h-4 w-4 text-green-600" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Undo mark as paid</p>
+                                    </TooltipContent>
+                                  </Tooltip>
                                 ) : (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 w-8 p-0"
-                                        onClick={() => openRejectDialog(bill)}
-                                      >
-                                        <XCircle className="h-4 w-4 text-destructive" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Reject bill</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
+                                  <>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-8 w-8 p-0"
+                                          onClick={() => openRejectDialog(bill)}
+                                        >
+                                          <XCircle className="h-4 w-4 text-destructive" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Reject bill</p>
+                                      </TooltipContent>
+                                    </Tooltip>
 
-                                {isSCUser && (visibleStatus === "pending" || visibleStatus === "reimbursed") && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 w-8 p-0"
-                                        onClick={() => handleUpdateStatus(bill.id, "reimbursed")}
-                                      >
-                                        <CheckCircle2 className="h-4 w-4 text-blue-600" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>{getStatusActionLabel()}</p>
-                                    </TooltipContent>
-                                  </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-8 w-8 p-0"
+                                          onClick={() => handleMarkPaid(bill.id)}
+                                        >
+                                          <CheckCircle2 className="h-4 w-4 text-blue-600" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>{getStatusActionLabel()}</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </>
                                 )}
                               </>
                             )}

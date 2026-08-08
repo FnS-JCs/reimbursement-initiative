@@ -69,8 +69,10 @@ export interface ReimbursementCycle {
   created_at: string;
 }
 
-export type BillStatus = 'pending' | 'reimbursed' | 'rejected';
+export type BillStatus = 'pending';
 export type BillViewStatus = 'pending' | 'reimbursed' | 'paid' | 'rejected';
+export type PaidState = 'paid' | 'rejected' | null;
+export type ReimbursedState = 'reimbursed' | 'rejected' | null;
 
 export interface Bill {
   id: string;
@@ -87,8 +89,8 @@ export interface Bill {
   process_type: string | null;
   file_url: string | null;
   status: BillStatus;
-  is_reimbursed: boolean;
-  rejected_by_role?: 'sc' | 'fns' | null;
+  paid: PaidState;
+  reimbursed: ReimbursedState;
   created_at: string;
 }
 

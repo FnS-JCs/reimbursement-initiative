@@ -128,10 +128,11 @@ export async function GET(request: NextRequest) {
     const redirectUrl = new URL(`${baseUrl}/auth/google-drive-callback`);
     redirectUrl.searchParams.set("refresh_token", refreshToken);
     return NextResponse.redirect(redirectUrl);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("OAuth callback error:", error);
+    const message = error instanceof Error ? error.message : String(error);
     const redirectUrl = new URL(`${baseUrl}/auth/google-drive-callback`);
-    redirectUrl.searchParams.set("error", error.message || "Failed to complete OAuth flow");
+    redirectUrl.searchParams.set("error", message || "Failed to complete OAuth flow");
     return NextResponse.redirect(redirectUrl);
   }
 }
