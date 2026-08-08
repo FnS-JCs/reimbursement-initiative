@@ -472,20 +472,27 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     if (!editDialog.bill) return;
 
     try {
-      const { error } = await supabase
-        .from("bills")
-        .update({
-          amount: parseFloat(editForm.amount),
-          vendor_id: editForm.vendor_id,
-          category_id: editForm.category_id,
-          subcategory_id: editForm.subcategory_id,
-          bill_number: editForm.bill_number,
-          date: editForm.date,
-          company_id: editForm.company_id || null,
-        })
-        .eq("id", editDialog.bill.id);
+      const response = await fetch("/api/bills/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          billId: editDialog.bill.id,
+          fields: {
+            amount: parseFloat(editForm.amount),
+            vendor_id: editForm.vendor_id,
+            category_id: editForm.category_id,
+            subcategory_id: editForm.subcategory_id,
+            bill_number: editForm.bill_number,
+            date: editForm.date,
+            company_id: editForm.company_id || null,
+          },
+        }),
+      });
 
-      if (error) throw error;
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to update bill");
+      }
 
       toast({
         title: "Bill updated",
@@ -494,10 +501,11 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
 
       setEditDialog({ open: false, bill: null });
       fetchBills();
-    } catch {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to update bill";
       toast({
         title: "Error",
-        description: "Failed to update bill",
+        description: message,
         variant: "destructive",
       });
     }
@@ -1231,24 +1239,26 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                       <td className="px-4 py-3">
                         <TooltipProvider>
                           <div className="flex items-center justify-center gap-1">
+                            {(canTakeAction || isSubmitter) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => handleEdit(bill)}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Edit bill details</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+
                             {canTakeAction && (
                               <>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() => handleEdit(bill)}
-                                    >
-                                      <Edit className="h-4 w-4" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p>Edit bill details</p>
-                                  </TooltipContent>
-                                </Tooltip>
-
                                 {bill.paid === "rejected" ? (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
