@@ -24,6 +24,7 @@ import {
 import { User, Role } from "@/types";
 import { useToast } from "@/lib/use-toast";
 import { formatRoleLabel, normalizeRole } from "@/lib/normalize-role";
+import { errorMessage, readJson } from "@/lib/utils";
 import { Edit, Power, Loader2, Shield, UserCircle, Plus } from "lucide-react";
 
 type UserFormState = {
@@ -70,13 +71,13 @@ export function FnSUsers() {
     setLoading(true);
     try {
       const response = await fetch("/api/fns/users", { cache: "no-store" });
-      const result = await response.json();
+      const { ok, data } = await readJson(response);
 
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to fetch users");
+      if (!ok) {
+        throw new Error(errorMessage(data, "Failed to fetch users"));
       }
 
-      setUsers(result.users || []);
+      setUsers((data.users as User[]) || []);
     } catch (err: unknown) {
       const e = err instanceof Error ? err : new Error(String(err));
       toast({
@@ -119,9 +120,9 @@ export function FnSUsers() {
         }),
       });
 
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to update user");
+      const result = await readJson(response);
+      if (!result.ok) {
+        throw new Error(errorMessage(result.data, "Failed to update user"));
       }
 
       toast({
@@ -154,9 +155,9 @@ export function FnSUsers() {
         body: JSON.stringify(addForm),
       });
 
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to add user");
+      const result = await readJson(response);
+      if (!result.ok) {
+        throw new Error(errorMessage(result.data, "Failed to add user"));
       }
 
       toast({
@@ -197,9 +198,9 @@ export function FnSUsers() {
         }),
       });
 
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to update user status");
+      const result = await readJson(response);
+      if (!result.ok) {
+        throw new Error(errorMessage(result.data, "Failed to update user status"));
       }
 
       toast({

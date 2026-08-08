@@ -18,7 +18,7 @@ import {
 import { ReimbursementCycle } from "@/types";
 import { useToast } from "@/lib/use-toast";
 import { Plus, Edit, Loader2, Calendar, Trash2 } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { errorMessage, formatDate, readJson } from "@/lib/utils";
 
 export function FnSCycles() {
   const supabase = createClient();
@@ -224,10 +224,10 @@ export function FnSCycles() {
         method: "DELETE",
       });
 
-      const payload = (await response.json()) as { error?: string };
+      const { ok, data } = await readJson(response);
 
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to delete cycle");
+      if (!ok) {
+        throw new Error(errorMessage(data, "Failed to delete cycle"));
       }
 
       toast({

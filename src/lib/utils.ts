@@ -31,3 +31,24 @@ export function formatDateTime(date: string | Date): string {
   const minutes = String(d.getMinutes()).padStart(2, '0');
   return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
+
+export async function readJson(
+  response: Response
+): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
+  const status = response.status;
+  let data: Record<string, unknown> = {};
+  const text = await response.text();
+  if (text) {
+    try {
+      data = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      data = { error: `The server returned an unreadable response (HTTP ${status}).` };
+    }
+  }
+  return { ok: response.ok, status, data };
+}
+
+export function errorMessage(data: Record<string, unknown>, fallback: string): string {
+  if (typeof data.error === 'string' && data.error.trim()) return data.error;
+  return fallback;
+}

@@ -10,7 +10,6 @@ const USER_SELECT =
 
 async function requireFnsAccess() {
   const supabase = await createClient();
-  const admin = createAdminClient();
 
   const {
     data: { user },
@@ -19,6 +18,14 @@ async function requireFnsAccess() {
 
   if (userError || !user) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  }
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server configuration error";
+    return { error: NextResponse.json({ error: message }, { status: 500 }) };
   }
 
   const { data: appUser, error: appUserError } = await admin
@@ -32,6 +39,11 @@ async function requireFnsAccess() {
   }
 
   return { admin };
+}
+
+function serverErrorResponse(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : String(error);
+  return NextResponse.json({ error: message || fallback }, { status: 500 });
 }
 
 function normalizeOptionalString(value: unknown) {
@@ -136,63 +148,81 @@ async function updateUserWithCompatibleRole(
 }
 
 export async function GET() {
-  const access = await requireFnsAccess();
-  if (access.error) return access.error;
+  try {
+    const access = await requireFnsAccess();
+    if (access.error) return access.error;
 
-  const { admin } = access;
-  const { data, error } = await admin.from("users").select(USER_SELECT).order("name");
+    const { admin } = access;
+    const { data, error } = await admin.from("users").select(USER_SELECT).order("name");
 
-  if (error) {
-    return databaseErrorResponse(error.message, 500);
+    if (error) {
+      return databaseErrorResponse(error.message, 500);
+    }
+
+    return NextResponse.json({ users: data || [] });
+  } catch (err: unknown) {
+    return serverErrorResponse(err, "Failed to fetch users");
   }
-
-  return NextResponse.json({ users: data || [] });
 }
 
 export async function POST(request: NextRequest) {
-  const access = await requireFnsAccess();
-  if (access.error) return access.error;
+  try {
+    const access = await requireFnsAccess();
+    if (access.error) return access.error;
 
-  const body = await request.json();
-  const normalized = normalizeUserPayload(body);
-  if (hasPayloadError(normalized)) {
-    return databaseErrorResponse(normalized.error, 400);
+    const body = await request.json();
+    const normalized = normalizeUserPayload(body);
+    if (hasPayloadError(normalized)) {
+      return databaseErrorResponse(normalized.error, 400);
+    }
+
+    const { admin } = access;
+    const { data, error } = await insertUserWithCompatibleRole(admin, normalized.data);
+
+    if (error) {
+      const status = error.code === "23505" ? 409 : 400;
+      return databaseErrorResponse(error.message, status);
+    }
+
+    return NextResponse.json({ user: data }, { status: 201 });
+  } catch (err: unknown) {
+    if (err instanceof SyntaxError) {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+    return serverErrorResponse(err, "Failed to add user");
   }
-
-  const { admin } = access;
-  const { data, error } = await insertUserWithCompatibleRole(admin, normalized.data);
-
-  if (error) {
-    const status = error.code === "23505" ? 409 : 400;
-    return databaseErrorResponse(error.message, status);
-  }
-
-  return NextResponse.json({ user: data }, { status: 201 });
 }
 
 export async function PATCH(request: NextRequest) {
-  const access = await requireFnsAccess();
-  if (access.error) return access.error;
+  try {
+    const access = await requireFnsAccess();
+    if (access.error) return access.error;
 
-  const body = await request.json();
-  const id = normalizeRequiredString(body.id);
+    const body = await request.json();
+    const id = normalizeRequiredString(body.id);
 
-  if (!id) {
-    return databaseErrorResponse("User id is required", 400);
+    if (!id) {
+      return databaseErrorResponse("User id is required", 400);
+    }
+
+    const normalized = normalizeUserPayload(body);
+    if (hasPayloadError(normalized)) {
+      return databaseErrorResponse(normalized.error, 400);
+    }
+
+    const { admin } = access;
+    const { data, error } = await updateUserWithCompatibleRole(admin, id, normalized.data);
+
+    if (error) {
+      const status = error.code === "23505" ? 409 : 400;
+      return databaseErrorResponse(error.message, status);
+    }
+
+    return NextResponse.json({ user: data });
+  } catch (err: unknown) {
+    if (err instanceof SyntaxError) {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+    return serverErrorResponse(err, "Failed to update user");
   }
-
-  const normalized = normalizeUserPayload(body);
-  if (hasPayloadError(normalized)) {
-    return databaseErrorResponse(normalized.error, 400);
-  }
-
-  const { admin } = access;
-  const { data, error } = await updateUserWithCompatibleRole(admin, id, normalized.data);
-
-  if (error) {
-    const status = error.code === "23505" ? 409 : 400;
-    return databaseErrorResponse(error.message, status);
-  }
-
-  return NextResponse.json({ user: data });
 }

@@ -7,55 +7,67 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  try {
+    const { id } = await params;
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  if (!user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    let admin: ReturnType<typeof createAdminClient>;
+    try {
+      admin = createAdminClient();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Server configuration error";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+
+    const { data: appUser, error: appUserError } = await admin
+      .from("users")
+      .select("role, is_active")
+      .eq("email", user.email.toLowerCase())
+      .maybeSingle();
+
+    if (appUserError) {
+      return NextResponse.json({ error: appUserError.message }, { status: 400 });
+    }
+
+    if (!appUser?.is_active || normalizeRole(appUser.role) !== "fns") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { count, error: countError } = await admin
+      .from("bills")
+      .select("id", { count: "exact", head: true })
+      .eq("cycle_id", id);
+
+    if (countError) {
+      return NextResponse.json({ error: countError.message }, { status: 400 });
+    }
+
+    if ((count || 0) > 0) {
+      return NextResponse.json(
+        { error: "This cycle cannot be deleted because bills are still assigned to it." },
+        { status: 409 }
+      );
+    }
+
+    const { error: deleteError } = await admin
+      .from("reimbursement_cycles")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to delete cycle";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const admin = createAdminClient();
-  const { data: appUser, error: appUserError } = await admin
-    .from("users")
-    .select("role, is_active")
-    .eq("email", user.email.toLowerCase())
-    .maybeSingle();
-
-  if (appUserError) {
-    return NextResponse.json({ error: appUserError.message }, { status: 400 });
-  }
-
-  if (!appUser?.is_active || normalizeRole(appUser.role) !== "fns") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const { count, error: countError } = await admin
-    .from("bills")
-    .select("id", { count: "exact", head: true })
-    .eq("cycle_id", id);
-
-  if (countError) {
-    return NextResponse.json({ error: countError.message }, { status: 400 });
-  }
-
-  if ((count || 0) > 0) {
-    return NextResponse.json(
-      { error: "This cycle cannot be deleted because bills are still assigned to it." },
-      { status: 409 }
-    );
-  }
-
-  const { error: deleteError } = await admin
-    .from("reimbursement_cycles")
-    .delete()
-    .eq("id", id);
-
-  if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 400 });
-  }
-
-  return NextResponse.json({ success: true });
 }
