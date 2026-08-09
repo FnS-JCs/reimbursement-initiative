@@ -40,6 +40,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   Calendar,
+  Trash2,
 } from "lucide-react";
 import {
   Tooltip,
@@ -123,6 +124,10 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
   }>({ open: false, bill: null });
 
   const [selectedBillIds, setSelectedBillIds] = useState<string[]>([]);
+  const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
+  const [submittedByOptions, setSubmittedByOptions] = useState<{ value: string; label: string }[]>([
+    { value: "all", label: "All Bills" },
+  ]);
   const [bulkRejectDialog, setBulkRejectDialog] = useState<{ open: boolean; comment: string }>({
     open: false,
     comment: "",
@@ -200,6 +205,14 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         query = query.in("sc_id", filters.sc_ids);
       } else if (filters.sc_id) {
         query = query.eq("sc_id", filters.sc_id);
+      }
+
+      if (filters.submitted_by_user_id && filters.submitted_by_user_id !== "all") {
+        if (filters.submitted_by_user_id === "fns") {
+          query = query.eq("submitted_by_role", "fns");
+        } else {
+          query = query.eq("user_id", filters.submitted_by_user_id);
+        }
       }
 
       if (filters.vendor_ids && filters.vendor_ids.length > 0) {
@@ -352,6 +365,29 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     });
   }, [supabase]);
 
+  const fetchSubmittedByOptions = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("bills")
+      .select("user_id, submitted_by_role, users:user_id(name)");
+    if (error) return;
+    const options = new Map<string, string>();
+    const rows = (data || []) as {
+      user_id: string;
+      submitted_by_role?: string | null;
+      users?: { name?: string | null } | null;
+    }[];
+    rows.forEach((row) => {
+      const isFns = row.submitted_by_role === "fns";
+      const key = isFns ? "fns" : row.user_id;
+      const label = isFns ? "FnS" : row.users?.name || "Unknown";
+      if (!options.has(key)) options.set(key, label);
+    });
+    setSubmittedByOptions([
+      { value: "all", label: "All Bills" },
+      ...Array.from(options.entries()).map(([value, label]) => ({ value, label })),
+    ]);
+  }, [supabase]);
+
   useEffect(() => {
     fetchBills();
   }, [fetchBills, refreshKey]);
@@ -364,8 +400,47 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
     fetchDropdownData();
   }, [fetchDropdownData]);
 
+  useEffect(() => {
+    fetchSubmittedByOptions();
+  }, [fetchSubmittedByOptions, refreshKey]);
+
   const handleEdit = (bill: BillWithRelations) => {
     setEditDialog({ open: true, bill });
+  };
+
+  const handleDeleteBill = async (bill: BillWithRelations) => {
+    const confirmed = window.confirm(`Delete bill #${bill.bill_number}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeletingBillId(bill.id);
+
+    try {
+      const response = await fetch("/api/bills/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ billId: bill.id }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to delete bill");
+      }
+
+      setBills((prev) => prev.filter((b) => b.id !== bill.id));
+      toast({
+        title: "Bill deleted",
+        description: "The bill has been deleted.",
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to delete bill";
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingBillId(null);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -852,7 +927,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 bg-muted/50 p-4 rounded-lg">
             <MultiSelectFilter
-              label="SC Cabinet"
+              label="SC/Cabinet"
               placeholder="All Cabinets"
               options={scFilterOptions}
               selectedValues={filters.sc_ids || []}
@@ -864,6 +939,29 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                 }))
               }
             />
+            <div className="space-y-2">
+              <Label>Submitted By</Label>
+              <Select
+                value={filters.submitted_by_user_id || "all"}
+                onValueChange={(v) =>
+                  updateFilters((prev) => ({
+                    ...prev,
+                    submitted_by_user_id: v === "all" ? undefined : v,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {submittedByOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <MultiSelectFilter
               label="Status"
               placeholder="All Statuses"
@@ -1045,7 +1143,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                   <th className="px-4 py-3 text-left">{renderSortHeader("vendor", "Vendor")}</th>
                   <th className="px-4 py-3 text-left">{renderSortHeader("company", "Company")}</th>
                   <th className="px-4 py-3 text-left">{renderSortHeader("category", "Category")}</th>
-                  <th className="px-4 py-3 text-left">{renderSortHeader("sc", "SC")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("sc", "SC/Cabinet")}</th>
                   <th className="px-4 py-3 text-right">{renderSortHeader("amount", "Amount")}</th>
                   <th className="px-4 py-3 text-center">{renderSortHeader("status", "Status")}</th>
                   <th className="px-4 py-3 text-center font-medium">Actions</th>
@@ -1187,6 +1285,27 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
                               </Tooltip>
                             </>
                           )}
+
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                onClick={() => handleDeleteBill(bill)}
+                                disabled={deletingBillId === bill.id}
+                              >
+                                {deletingBillId === bill.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin text-destructive" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Delete bill</p>
+                            </TooltipContent>
+                          </Tooltip>
 
                           {bill.file_url && <DriveLinkPreview fileUrl={bill.file_url} />}
                         </div>

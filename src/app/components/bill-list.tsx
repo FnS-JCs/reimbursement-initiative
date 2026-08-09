@@ -87,7 +87,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   });
 
   const defaultFilters: BillFilters = isSC
-    ? { submitted_by_filter: "all", status: "all" }
+    ? { submitted_by_user_id: "all", status: "all" }
     : { status: "all" };
 
   const [filters, setFilters] = useState<BillFilters>(defaultFilters);
@@ -126,6 +126,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   const [filteredSubCategories, setFilteredSubCategories] = useState<{ id: string; name: string }[]>([]);
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
   const [selectedBillIds, setSelectedBillIds] = useState<string[]>([]);
+  const [submittedByOptions, setSubmittedByOptions] = useState<{ value: string; label: string }[]>([
+    { value: "all", label: "All Bills" },
+  ]);
   const [bulkRejectDialog, setBulkRejectDialog] = useState<{ open: boolean; comment: string }>({
     open: false,
     comment: "",
@@ -183,10 +186,12 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         .order("created_at", { ascending: false });
 
       if (isSC) {
-        if (filters.submitted_by_filter === "myself") {
-          query = query.eq("user_id", userId);
-        } else if (filters.submitted_by_filter === "jcs") {
-          query = query.neq("user_id", userId);
+        if (filters.submitted_by_user_id && filters.submitted_by_user_id !== "all") {
+          if (filters.submitted_by_user_id === "fns") {
+            query = query.eq("submitted_by_role", "fns");
+          } else {
+            query = query.eq("user_id", filters.submitted_by_user_id);
+          }
         }
       } else {
         query = query.eq("user_id", userId);
@@ -212,7 +217,9 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
         query = query.in("subcategory_id", filters.subcategory_ids);
       }
 
-      if (filters.sc_id) {
+      if (filters.sc_ids && filters.sc_ids.length > 0) {
+        query = query.in("sc_id", filters.sc_ids);
+      } else if (filters.sc_id) {
         query = query.eq("sc_id", filters.sc_id);
       }
 
@@ -297,6 +304,31 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     }
   }, [supabase, userId, isSC, workflowRole, filters, toast]);
 
+  const fetchSubmittedByOptions = useCallback(async () => {
+    if (!isSC) return;
+    const { data, error } = await supabase
+      .from("bills")
+      .select("user_id, submitted_by_role, users:user_id(name), sc_cabinets:sc_id(user_id)")
+      .eq("sc_cabinets.user_id", userId);
+    if (error) return;
+    const options = new Map<string, string>();
+    const rows = (data || []) as {
+      user_id: string;
+      submitted_by_role?: string | null;
+      users?: { name?: string | null } | null;
+    }[];
+    rows.forEach((row) => {
+      const isFns = row.submitted_by_role === "fns";
+      const key = isFns ? "fns" : row.user_id;
+      const label = isFns ? "FnS" : row.users?.name || "Unknown";
+      if (!options.has(key)) options.set(key, label);
+    });
+    setSubmittedByOptions([
+      { value: "all", label: "All Bills" },
+      ...Array.from(options.entries()).map(([value, label]) => ({ value, label })),
+    ]);
+  }, [supabase, isSC, userId]);
+
   const fetchDropdownData = useCallback(async () => {
     const [
       companiesRes,
@@ -341,6 +373,10 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   useEffect(() => {
     fetchDropdownData();
   }, [fetchDropdownData]);
+
+  useEffect(() => {
+    fetchSubmittedByOptions();
+  }, [fetchSubmittedByOptions, refreshKey]);
 
   const handleMarkPaid = async (billId: string) => {
     try {
@@ -692,9 +728,6 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
   };
 
   // ── Derived totals ──────────────────────────────────────────────────────────
-
-  const totalAmount = bills.reduce((sum, b) => sum + b.amount, 0);
-
   // JC: paid to them (by SC) vs pending to be paid (by SC)
   const jcPaidAmount = bills
     .filter((b) => b.paid === "paid")
@@ -703,17 +736,23 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     .filter((b) => b.paid === null && b.reimbursed !== "rejected")
     .reduce((sum, b) => sum + b.amount, 0);
 
+  // SC: bills under this SC's name (assigned to their cabinet), regardless of submitter
+  const scPortfolioBills = isSC
+    ? bills.filter((b) => b.sc_cabinets?.user_id === userId)
+    : [];
+  const scPortfolioTotal = scPortfolioBills.reduce((sum, b) => sum + b.amount, 0);
+
   // SC: reimbursement from FnS and payments made to JCs
-  const scPendingReimbursementAmount = bills
+  const scPendingReimbursementAmount = scPortfolioBills
     .filter((b) => b.reimbursed === null && b.paid !== "rejected")
     .reduce((sum, b) => sum + b.amount, 0);
-  const scReimbursedAmount = bills
+  const scReimbursedAmount = scPortfolioBills
     .filter((b) => b.reimbursed === "reimbursed")
     .reduce((sum, b) => sum + b.amount, 0);
-  const scPendingPaidAmount = bills
-    .filter((b) => b.paid === null && b.reimbursed !== "rejected")
+  const scPendingPaidAmount = scPortfolioBills
+    .filter((b) => b.submitted_by_role === "jc" && b.paid === null && b.reimbursed !== "rejected")
     .reduce((sum, b) => sum + b.amount, 0);
-  const scPaidAmount = bills
+  const scPaidAmount = scPortfolioBills
     .filter((b) => b.paid === "paid")
     .reduce((sum, b) => sum + b.amount, 0);
 
@@ -850,6 +889,11 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
     [dropdownData.vendors]
   );
 
+  const scFilterOptions = useMemo(
+    () => dropdownData.scUsers.map((sc) => ({ value: sc.id, label: sc.name })),
+    [dropdownData.scUsers]
+  );
+
   const companyFilterOptions = useMemo(
     () => dropdownData.companies.map((c) => ({ value: c.id, label: c.name })),
     [dropdownData.companies]
@@ -926,7 +970,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold">{formatCurrency(totalAmount)}</div>
+              <div className="text-2xl font-bold">{formatCurrency(scPortfolioTotal)}</div>
               <p className="text-sm text-muted-foreground">Total</p>
             </CardContent>
           </Card>
@@ -955,21 +999,42 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
               <div className="space-y-2">
                 <Label>Submitted By</Label>
                 <Select
-                  value={filters.submitted_by_filter || "all"}
+                  value={filters.submitted_by_user_id || "all"}
                   onValueChange={(v) =>
-                    setFilters({ ...filters, submitted_by_filter: v as BillFilters["submitted_by_filter"] })
+                    setFilters({
+                      ...filters,
+                      submitted_by_user_id: v === "all" ? undefined : v,
+                    })
                   }
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Bills</SelectItem>
-                    <SelectItem value="myself">My Bills</SelectItem>
-                    <SelectItem value="jcs">JC Bills</SelectItem>
+                    {submittedByOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
+            )}
+
+            {isSC && (
+              <MultiSelectFilter
+                label="SC/Cabinet"
+                placeholder="All Cabinets"
+                options={scFilterOptions}
+                selectedValues={filters.sc_ids || []}
+                onChange={(values) =>
+                  setFilters({
+                    ...filters,
+                    sc_ids: values.length > 0 ? values : undefined,
+                    sc_id: undefined,
+                  })
+                }
+              />
             )}
 
             <MultiSelectFilter
@@ -1171,7 +1236,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
                   <th className="px-4 py-3 text-left">{renderSortHeader("vendor", "Vendor")}</th>
                   <th className="px-4 py-3 text-left">{renderSortHeader("company", "Company")}</th>
                   <th className="px-4 py-3 text-left">{renderSortHeader("category", "Category")}</th>
-                  <th className="px-4 py-3 text-left">{renderSortHeader("sc", "SC")}</th>
+                  <th className="px-4 py-3 text-left">{renderSortHeader("sc", "SC/Cabinet")}</th>
                   <th className="px-4 py-3 text-right">{renderSortHeader("amount", "Amount")}</th>
                   <th className="px-4 py-3 text-center">{renderSortHeader("status", "Status")}</th>
                   <th className="px-4 py-3 text-center font-medium">Actions</th>

@@ -129,7 +129,7 @@ export interface BillFormData {
 }
 
 export interface BillFilters {
-  submitted_by_filter?: 'jcs' | 'myself' | 'all';
+  submitted_by_user_id?: string;
   bill_type?: 'company' | 'general' | 'all';
   status?: BillViewStatus | 'all';
   statuses?: BillViewStatus[];
