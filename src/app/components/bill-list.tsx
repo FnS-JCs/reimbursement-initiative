@@ -1024,7 +1024,7 @@ export function BillList({ userId, userRole, refreshKey, isSC }: BillListProps) 
             {isSC && (
               <MultiSelectFilter
                 label="SC/Cabinet"
-                placeholder="All Cabinets"
+                placeholder="All"
                 options={scFilterOptions}
                 selectedValues={filters.sc_ids || []}
                 onChange={(values) =>

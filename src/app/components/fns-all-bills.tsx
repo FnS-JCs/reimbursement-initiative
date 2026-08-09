@@ -928,7 +928,7 @@ export function FnSAllBills({ refreshKey = 0 }: FnSAllBillsProps) {
           <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 bg-muted/50 p-4 rounded-lg">
             <MultiSelectFilter
               label="SC/Cabinet"
-              placeholder="All Cabinets"
+              placeholder="All"
               options={scFilterOptions}
               selectedValues={filters.sc_ids || []}
               onChange={(values) =>
