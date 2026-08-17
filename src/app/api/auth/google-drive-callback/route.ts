@@ -122,7 +122,12 @@ export async function GET(request: NextRequest) {
     console.log(`GOOGLE_DRIVE_REFRESH_TOKEN=${refreshToken}`);
 
     process.env.GOOGLE_DRIVE_REFRESH_TOKEN = refreshToken;
-    await persistEnvValue("GOOGLE_DRIVE_REFRESH_TOKEN", refreshToken);
+    try {
+      await persistEnvValue("GOOGLE_DRIVE_REFRESH_TOKEN", refreshToken);
+    } catch {
+      // Production / serverless: .env.local is read-only — token is
+      // passed via redirect search params so the user can copy it.
+    }
 
     // Redirect to page component to display the refresh token
     const redirectUrl = new URL(`${baseUrl}/auth/google-drive-callback`);
