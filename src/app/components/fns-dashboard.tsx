@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
 import { User } from "@/types";
-import { LogOut, User as UserIcon, ChevronDown } from "lucide-react";
+import { LogOut, User as UserIcon, ChevronDown, RotateCcw } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import Image from "next/image";
 
@@ -50,6 +50,14 @@ export function FnSDashboard({ children, user }: FnSDashboardProps) {
           </div>
 
           <div className="flex items-center gap-2">
+            <a
+              href="/api/auth/google-drive-authorize"
+              title="Generate a new Google Drive token"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span className="hidden md:inline">Drive Token</span>
+            </a>
             <ThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
