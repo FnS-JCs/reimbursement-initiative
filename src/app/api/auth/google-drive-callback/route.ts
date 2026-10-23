@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
+import { autoUpdateDriveToken } from "@/lib/vercel";
 
 const persistEnvValue = async (key: string, value: string) => {
   const envPath = path.resolve(process.cwd(), ".env.local");
@@ -132,6 +133,15 @@ export async function GET(request: NextRequest) {
     // Redirect to page component to display the refresh token
     const redirectUrl = new URL(`${baseUrl}/auth/google-drive-callback`);
     redirectUrl.searchParams.set("refresh_token", refreshToken);
+
+    // Auto-update the token in Vercel if configured
+    const autoUpdate = await autoUpdateDriveToken(refreshToken);
+    if (autoUpdate.ok) {
+      redirectUrl.searchParams.set("auto_updated", autoUpdate.redeployed ? "true" : "partial");
+    } else {
+      redirectUrl.searchParams.set("auto_updated", `error:${autoUpdate.error}`);
+    }
+
     return NextResponse.redirect(redirectUrl);
   } catch (error: unknown) {
     console.error("OAuth callback error:", error);
